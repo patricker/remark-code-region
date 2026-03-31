@@ -13,24 +13,24 @@ Code examples in documentation go stale. You update an API, the tests pass, but 
 Write your examples as real, executable tests. Mark regions with comments. Reference them from your docs. The plugin injects the tested code at build time.
 
 ```
-              ┌─────────────────────┐
-              │   test_api.py       │
-              │                     │
-              │   # region: basic   │
-              │   rows = loads(...) │  ← Runs in CI
-              │   assert len(rows)  │
-              │   # endregion       │
-              └──────────┬──────────┘
-                         │
-                    build time
-                         │
-              ┌──────────▼──────────┐
-              │   docs/api.md       │
-              │                     │
-              │   ```python         │
-              │   rows = loads(...) │  ← Injected (asserts stripped)
-              │   ```               │
-              └─────────────────────┘
+              ┌──────────────────────────┐
+              │   tests/test_sdk.py      │
+              │                          │
+              │   # region: create_user  │
+              │   user = sdk.create(...) │  ← Runs in CI
+              │   assert user.id         │
+              │   # endregion            │
+              └────────────┬─────────────┘
+                           │
+                      build time
+                           │
+              ┌────────────▼─────────────┐
+              │   docs/quickstart.md     │
+              │                          │
+              │   ```python              │
+              │   user = sdk.create(...) │  ← Injected (asserts stripped)
+              │   ```                    │
+              └──────────────────────────┘
 ```
 
 If the test breaks, CI fails. If the region moves, the build fails. **Stale docs become impossible.**
@@ -61,37 +61,38 @@ module.exports = {
 Add region markers to your test file:
 
 ```python
-# test_api.py
+# tests/test_users.py
 
-def test_parse_basic():
-    # region: parse_basic
-    import mhn
+def test_create_user():
+    # region: create_user
+    from myapp import client
 
-    rows = mhn.loads("Name|Age\nAlice|30")
-    print(rows)
-    # [{"Name": "Alice", "Age": "30"}]
-    # endregion: parse_basic
-    assert rows[0]["Name"] == "Alice"
+    user = client.create_user(name="Alice", role="admin")
+    print(user)
+    # {"id": "usr_123", "name": "Alice", "role": "admin"}
+    # endregion: create_user
+    assert user["name"] == "Alice"
+    assert user["role"] == "admin"
 ```
 
 Reference it from your docs:
 
 ````markdown
-```python reference="tests/test_api.py#parse_basic"
+```python reference="tests/test_users.py#create_user"
 ```
 ````
 
 At build time, the code fence is replaced with:
 
 ```python
-import mhn
+from myapp import client
 
-rows = mhn.loads("Name|Age\nAlice|30")
-print(rows)
-# [{"Name": "Alice", "Age": "30"}]
+user = client.create_user(name="Alice", role="admin")
+print(user)
+# {"id": "usr_123", "name": "Alice", "role": "admin"}
 ```
 
-The `assert` line is automatically stripped. The region markers are removed. Clean, tested code in your docs.
+The `assert` lines are automatically stripped. The region markers are removed. Clean, tested code in your docs.
 
 ## Region markers
 
@@ -129,7 +130,7 @@ These patterns are removed from injected code by default:
 To keep assertions visible, append `?keepAsserts`:
 
 ````markdown
-```python reference="tests/test_api.py#parse_basic?keepAsserts"
+```python reference="tests/test_users.py#create_user?keepAsserts"
 ```
 ````
 
@@ -156,7 +157,7 @@ remarkPlugins: [[codeRegion, {
 If a referenced file is missing or a region doesn't exist, **the build fails**:
 
 ```
-Error: remark-code-region: region 'parse_basic' not found in tests/test_api.py
+Error: remark-code-region: region 'create_user' not found in tests/test_users.py
 ```
 
 This is intentional. Silent stale docs are worse than a build error.
