@@ -1,0 +1,58 @@
+{
+  "name": "remark-code-region",
+  "version": "0.1.0",
+  "description": "Every code block in your docs is extracted from a passing test. Pull tested code from your test suite into Docusaurus, Astro, or any remark-powered docs.",
+  "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.mjs",
+  "exports": {
+    ".": {
+      "require": "./index.cjs",
+      "import": "./index.mjs"
+    }
+  },
+  "files": [
+    "index.mjs",
+    "index.cjs",
+    "lib/"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "remark",
+    "remark-plugin",
+    "unified",
+    "markdown",
+    "docusaurus",
+    "astro",
+    "code-blocks",
+    "documentation",
+    "tested-code",
+    "code-import",
+    "code-region",
+    "snippets"
+  ],
+  "author": "patricker",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patricker/remark-code-region"
+  },
+  "homepage": "https://github.com/patricker/remark-code-region#readme",
+  "bugs": {
+    "url": "https://github.com/patricker/remark-code-region/issues"
+  },
+  "dependencies": {
+    "unist-util-visit": "^5.0.0"
+  },
+  "devDependencies": {
+    "remark": "^15.0.0",
+    "remark-parse": "^11.0.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
