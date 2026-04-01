@@ -7,17 +7,39 @@
  *   const codeRegion = require('remark-code-region');
  */
 
-// Re-implement in CJS to avoid async import() issues in remark plugin chains.
-// This is a standalone CJS copy of the plugin logic — kept in sync with index.mjs.
-
 const { visit } = require('unist-util-visit');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// --- Patterns (inlined from lib/patterns.mjs) ---
+// --- Default region markers ---
 
-const REGION_START = /^[ \t]*(?:\/\/|#)\s*region:\s*(\S+)\s*$/;
-const REGION_END = /^[ \t]*(?:\/\/|#)\s*endregion:\s*(\S+)\s*$/;
+const DEFAULT_REGION_MARKERS = [
+  {
+    start: /^[ \t]*#\s*region:\s*(\S+)\s*$/,
+    end:   /^[ \t]*#\s*endregion:\s*(\S+)\s*$/,
+  },
+  {
+    start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/,
+    end:   /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/,
+  },
+];
+
+const PRESET_MARKERS = {
+  css: {
+    start: /^[ \t]*\/\*\s*region:\s*(\S+)\s*\*\/\s*$/,
+    end:   /^[ \t]*\/\*\s*endregion:\s*(\S+)\s*\*\/\s*$/,
+  },
+  html: {
+    start: /^[ \t]*<!--\s*region:\s*(\S+)\s*-->\s*$/,
+    end:   /^[ \t]*<!--\s*endregion:\s*(\S+)\s*-->\s*$/,
+  },
+  sql: {
+    start: /^[ \t]*--\s*region:\s*(\S+)\s*$/,
+    end:   /^[ \t]*--\s*endregion:\s*(\S+)\s*$/,
+  },
+};
+
+// --- Default strip patterns ---
 
 const DEFAULT_STRIP_PATTERNS = [
   /^\s*assert\s/,
@@ -40,22 +62,35 @@ const DEFAULT_STRIP_PATTERNS = [
 
 // --- Extract region ---
 
-function extractRegion(content, regionName, filePath) {
+function extractRegion(content, regionName, filePath, markers) {
   const lines = content.split('\n');
   let capturing = false;
   const captured = [];
   let found = false;
 
   for (const line of lines) {
-    const startMatch = line.match(REGION_START);
-    const endMatch = line.match(REGION_END);
+    let isStart = false;
+    let isEnd = false;
 
-    if (startMatch && startMatch[1] === regionName) {
+    for (const { start, end } of markers) {
+      const startMatch = line.match(start);
+      if (startMatch && startMatch[1] === regionName) {
+        isStart = true;
+        break;
+      }
+      const endMatch = line.match(end);
+      if (endMatch && endMatch[1] === regionName) {
+        isEnd = true;
+        break;
+      }
+    }
+
+    if (isStart) {
       capturing = true;
       found = true;
       continue;
     }
-    if (endMatch && endMatch[1] === regionName) {
+    if (isEnd) {
       capturing = false;
       continue;
     }
@@ -96,6 +131,7 @@ function cleanCode(code, { keepAsserts = false, patterns = [] } = {}) {
 function remarkCodeRegion(options = {}) {
   const {
     rootDir,
+    regionMarkers = DEFAULT_REGION_MARKERS,
     stripPatterns = [],
     keepAsserts: globalKeepAsserts = false,
     attribute = 'reference',
@@ -134,7 +170,7 @@ function remarkCodeRegion(options = {}) {
 
       let code;
       if (regionName) {
-        code = extractRegion(content, regionName, filePath);
+        code = extractRegion(content, regionName, filePath, regionMarkers);
       } else {
         code = content;
       }
@@ -149,5 +185,8 @@ function remarkCodeRegion(options = {}) {
     });
   };
 }
+
+remarkCodeRegion.DEFAULT_REGION_MARKERS = DEFAULT_REGION_MARKERS;
+remarkCodeRegion.PRESET_MARKERS = PRESET_MARKERS;
 
 module.exports = remarkCodeRegion;

@@ -110,7 +110,78 @@ code here
 // endregion: name
 ```
 
-Works with Python, JavaScript, TypeScript, Rust, Go, Java, C, C++, bash, and any language using `#` or `//` comments.
+**Supported out of the box** (no configuration needed):
+
+| Comment style | Languages |
+|---|---|
+| `# region:` / `# endregion:` | Python, bash, Ruby, YAML, TOML |
+| `// region:` / `// endregion:` | JavaScript, TypeScript, Rust, Go, Java, C, C++, Swift, Kotlin |
+
+### Adding more languages
+
+For languages that use different comment syntax, add marker presets via the `regionMarkers` option. Built-in presets are available for CSS, HTML, and SQL:
+
+```js
+const codeRegion = require('remark-code-region');
+const { PRESET_MARKERS } = codeRegion;
+
+remarkPlugins: [[codeRegion, {
+  regionMarkers: [
+    // Keep the defaults (# and // comments)
+    ...codeRegion.DEFAULT_REGION_MARKERS,
+    // Add CSS: /* region: name */ ... /* endregion: name */
+    PRESET_MARKERS.css,
+    // Add HTML: <!-- region: name --> ... <!-- endregion: name -->
+    PRESET_MARKERS.html,
+    // Add SQL/Lua: -- region: name ... -- endregion: name
+    PRESET_MARKERS.sql,
+  ],
+}]],
+```
+
+Then use the corresponding comment syntax in your source files:
+
+```css
+/* region: button_styles */
+.btn {
+  padding: 0.5rem 1rem;
+  background: #3b82f6;
+}
+/* endregion: button_styles */
+```
+
+```sql
+-- region: create_table
+CREATE TABLE users (
+  id   SERIAL PRIMARY KEY,
+  name TEXT NOT NULL
+);
+-- endregion: create_table
+```
+
+```html
+<!-- region: nav_bar -->
+<nav class="navbar">
+  <a href="/">Home</a>
+  <a href="/docs">Docs</a>
+</nav>
+<!-- endregion: nav_bar -->
+```
+
+### Custom markers
+
+For any other comment style, define your own `{start, end}` regex pair. Group 1 must capture the region name:
+
+```js
+regionMarkers: [
+  ...codeRegion.DEFAULT_REGION_MARKERS,
+  {
+    // Erlang/Elixir: %% region: name
+    start: /^[ \t]*%%\s*region:\s*(\S+)\s*$/,
+    end:   /^[ \t]*%%\s*endregion:\s*(\S+)\s*$/,
+  },
+],
+```
 
 ## Automatic test-line stripping
 
@@ -136,18 +207,24 @@ To keep assertions visible, append `?keepAsserts`:
 
 ## Options
 
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `rootDir` | `string` | `process.cwd()` | Base directory for resolving reference paths. |
+| `regionMarkers` | `{start, end}[]` | `DEFAULT_REGION_MARKERS` | Region marker pairs. Each `start`/`end` is a RegExp where group 1 captures the region name. Defaults cover `#` and `//` comments. |
+| `stripPatterns` | `RegExp[]` | `[]` | Additional patterns to strip, merged with the built-in defaults. |
+| `keepAsserts` | `boolean` | `false` | Disable assertion stripping globally. |
+| `attribute` | `string` | `'reference'` | The code fence meta attribute name to look for. |
+
 ```js
 remarkPlugins: [[codeRegion, {
-  // Base directory for resolving paths (default: process.cwd())
   rootDir: __dirname,
-
-  // Additional patterns to strip (merged with defaults)
+  regionMarkers: [
+    ...codeRegion.DEFAULT_REGION_MARKERS,
+    codeRegion.PRESET_MARKERS.css,
+    codeRegion.PRESET_MARKERS.sql,
+  ],
   stripPatterns: [/^\s*check\(/],
-
-  // Disable stripping globally
   keepAsserts: false,
-
-  // Custom attribute name (default: "reference")
   attribute: 'reference',
 }]],
 ```

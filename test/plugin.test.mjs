@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { remark } from 'remark';
 import remarkCodeRegion from '../index.mjs';
+import { PRESET_MARKERS } from '../lib/patterns.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -57,7 +58,6 @@ describe('remarkCodeRegion plugin', () => {
   it('injects full file when no region specified', () => {
     const input = '```python reference="snippets/example.py"\n```';
     const output = process(input);
-    // Should contain code from multiple regions (whole file)
     expect(output).toContain('name = "World"');
     expect(output).toContain('def greet');
   });
@@ -93,7 +93,6 @@ describe('remarkCodeRegion plugin', () => {
 
   it('supports custom strip patterns', () => {
     const input = '```python reference="snippets/example.py#multiline"\n```';
-    // Add a pattern that strips "message = " lines
     const output = process(input, {
       stripPatterns: [/^\s*message\s*=/],
     });
@@ -105,5 +104,71 @@ describe('remarkCodeRegion plugin', () => {
     const input = '```python reference="snippets/example.py#with_asserts"\n```';
     const output = process(input, { keepAsserts: true });
     expect(output).toContain('assert result == 4');
+  });
+});
+
+describe('remarkCodeRegion with CSS regions', () => {
+  const opts = {
+    regionMarkers: [
+      // Include defaults + CSS preset
+      { start: /^[ \t]*#\s*region:\s*(\S+)\s*$/, end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/ },
+      { start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/, end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/ },
+      PRESET_MARKERS.css,
+    ],
+  };
+
+  it('injects a CSS region', () => {
+    const input = '```css reference="snippets/example.css#button_styles"\n```';
+    const output = process(input, opts);
+    expect(output).toContain('.btn {');
+    expect(output).toContain('background: #3b82f6;');
+  });
+
+  it('extracts only the requested CSS region', () => {
+    const input = '```css reference="snippets/example.css#dark_theme"\n```';
+    const output = process(input, opts);
+    expect(output).toContain("data-theme='dark'");
+    expect(output).not.toContain('padding: 0.5rem');
+  });
+});
+
+describe('remarkCodeRegion with SQL regions', () => {
+  const opts = {
+    regionMarkers: [
+      { start: /^[ \t]*#\s*region:\s*(\S+)\s*$/, end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/ },
+      { start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/, end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/ },
+      PRESET_MARKERS.sql,
+    ],
+  };
+
+  it('injects a SQL region', () => {
+    const input = '```sql reference="snippets/example.sql#create_table"\n```';
+    const output = process(input, opts);
+    expect(output).toContain('CREATE TABLE users');
+    expect(output).toContain('SERIAL PRIMARY KEY');
+  });
+
+  it('extracts only the requested SQL region', () => {
+    const input = '```sql reference="snippets/example.sql#insert_data"\n```';
+    const output = process(input, opts);
+    expect(output).toContain("INSERT INTO users");
+    expect(output).not.toContain('CREATE TABLE');
+  });
+});
+
+describe('remarkCodeRegion with HTML regions', () => {
+  const opts = {
+    regionMarkers: [
+      { start: /^[ \t]*#\s*region:\s*(\S+)\s*$/, end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/ },
+      { start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/, end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/ },
+      PRESET_MARKERS.html,
+    ],
+  };
+
+  it('injects an HTML region', () => {
+    const input = '```html reference="snippets/example.html#nav_bar"\n```';
+    const output = process(input, opts);
+    expect(output).toContain('<nav class="navbar">');
+    expect(output).toContain('</nav>');
   });
 });

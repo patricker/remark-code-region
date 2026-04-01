@@ -1,0 +1,14 @@
+/* region: button_styles */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  background: #3b82f6;
+  color: white;
+}
+/* endregion: button_styles */
+
+/* region: dark_theme */
+[data-theme='dark'] .btn {
+  background: #1d4ed8;
+}
+/* endregion: dark_theme */

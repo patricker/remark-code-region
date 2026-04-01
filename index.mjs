@@ -17,11 +17,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractRegion } from './lib/extract-region.mjs';
 import { cleanCode } from './lib/strip-asserts.mjs';
-import { DEFAULT_STRIP_PATTERNS, REGION_START, REGION_END } from './lib/patterns.mjs';
+import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS } from './lib/patterns.mjs';
+
+/**
+ * @typedef {Object} RegionMarker
+ * @property {RegExp} start - Regex matching region start. Group 1 = name.
+ * @property {RegExp} end - Regex matching region end. Group 1 = name.
+ */
 
 /**
  * @typedef {Object} Options
  * @property {string} [rootDir] - Base directory for resolving reference paths. Defaults to process.cwd().
+ * @property {RegionMarker[]} [regionMarkers] - Region marker pairs. Defaults cover # and // comments. Add pairs for CSS, SQL, etc.
  * @property {RegExp[]} [stripPatterns] - Additional patterns to strip (merged with defaults).
  * @property {boolean} [keepAsserts=false] - If true, disable assertion stripping globally.
  * @property {string} [attribute='reference'] - The code fence meta attribute name to look for.
@@ -36,6 +43,7 @@ import { DEFAULT_STRIP_PATTERNS, REGION_START, REGION_END } from './lib/patterns
 export default function remarkCodeRegion(options = {}) {
   const {
     rootDir,
+    regionMarkers = DEFAULT_REGION_MARKERS,
     stripPatterns = [],
     keepAsserts: globalKeepAsserts = false,
     attribute = 'reference',
@@ -82,7 +90,7 @@ export default function remarkCodeRegion(options = {}) {
       // Extract region or use full file
       let code;
       if (regionName) {
-        code = extractRegion(content, regionName, filePath, REGION_START, REGION_END);
+        code = extractRegion(content, regionName, filePath, regionMarkers);
       } else {
         code = content;
       }
@@ -100,3 +108,6 @@ export default function remarkCodeRegion(options = {}) {
     });
   };
 }
+
+// Re-export presets for convenience
+export { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from './lib/patterns.mjs';
