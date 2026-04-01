@@ -216,10 +216,10 @@ const result = await remark()
 | Include from file | `file=./path.js#L3-L6` | `reference="path.py#region_name"` |
 | **Named regions** | No | Yes — stable across edits |
 | **Strip test lines** | No | Auto-strips asserts, expects, test-only markers |
-| **Fail on missing** | Silent | **Hard build failure** |
-| Line ranges | Yes | No (regions are better) |
+| Fail on missing file | Yes | Yes |
+| Line ranges | Yes | No (regions don't shift when code is edited) |
 
-Line ranges break every time you edit the source file. Regions are stable — add code above or below, the region still works. And auto-stripping is what makes "code lives in test files" practical.
+Both plugins fail on missing files. The key difference is **how you target code**. Line ranges (`#L3-L6`) shift every time you add or remove a line above them. Named regions are anchored by markers in the source — edit freely above or below, the region stays correct. And auto-stripping test assertions is what makes "code lives in test files" practical — without it, you'd need separate display-only copies.
 
 ## License
 
