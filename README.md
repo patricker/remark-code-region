@@ -1,5 +1,10 @@
 # remark-code-region
 
+[![CI](https://github.com/patricker/remark-code-region/actions/workflows/ci.yml/badge.svg)](https://github.com/patricker/remark-code-region/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/remark-code-region)](https://www.npmjs.com/package/remark-code-region)
+[![License: MIT](https://img.shields.io/npm/l/remark-code-region)](https://github.com/patricker/remark-code-region/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/remark-code-region)](https://nodejs.org/)
+
 **Every code block in your docs is extracted from a passing test.**
 
 Pull tested code straight from your test suite into your Docusaurus, Astro, or any remark-powered docs. Named regions, automatic test-line stripping, hard build failures on drift.
