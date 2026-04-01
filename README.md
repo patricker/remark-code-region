@@ -187,33 +187,74 @@ regionMarkers: [
 
 These patterns are removed from injected code by default:
 
-| Pattern | Language |
-|---|---|
-| `assert ...` | Python |
-| `assert_eq!()`, `assert_ne!()` | Rust |
-| `assertEquals()`, `assertTrue()`, etc. | Java/JUnit |
-| `expect()` | JS (Jest/Vitest) |
-| `ASSERT_*`, `EXPECT_*` | C++ (gtest) |
-| `if err != nil { t.Fatal` | Go |
-| Lines ending with `// test-only` | Any |
-| Lines ending with `# test-only` | Python/bash |
+| Preset | Pattern | Language |
+|---|---|---|
+| `python` | `assert ...` | Python |
+| `rust` | `assert_eq!()`, `assert_ne!()` | Rust |
+| `java` | `assertEquals()`, `assertTrue()`, etc. | Java/JUnit |
+| `js` | `expect()` | JS (Jest/Vitest) |
+| `cpp` | `ASSERT_*`, `EXPECT_*` | C++ (gtest) |
+| `go` | `if err != nil { t.Fatal` | Go |
+| `markers` | Lines ending with `// test-only` or `# test-only` | Any |
 
-To keep assertions visible, append `?keepAsserts`:
+To keep assertions visible in a specific block, append `?keepAsserts`:
 
 ````markdown
 ```python reference="tests/test_users.py#create_user?keepAsserts"
 ```
 ````
 
+### Customizing strip patterns
+
+The default strips assertions for every supported language. If you only use Python and JS, or need to add your own patterns, use `PRESET_STRIP` to compose exactly what you want:
+
+```js
+const codeRegion = require('remark-code-region');
+const { PRESET_STRIP } = codeRegion;
+
+remarkPlugins: [[codeRegion, {
+  // Only strip Python asserts, JS expects, and test-only markers
+  stripPatterns: [...PRESET_STRIP.python, ...PRESET_STRIP.js, ...PRESET_STRIP.markers],
+  replaceDefaultStrip: true,
+}]],
+```
+
+Available presets: `python`, `rust`, `java`, `js`, `cpp`, `go`, `markers`.
+
+You can also add custom patterns alongside the defaults (no `replaceDefaultStrip` needed):
+
+```js
+remarkPlugins: [[codeRegion, {
+  // Add to defaults — strip lines matching your custom test helper
+  stripPatterns: [/^\s*check\(/, /^\s*verify\(/],
+}]],
+```
+
+Or disable stripping entirely:
+
+```js
+remarkPlugins: [[codeRegion, { keepAsserts: true }]],
+```
+
 ## Options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `rootDir` | `string` | `process.cwd()` | Base directory for resolving reference paths. |
-| `regionMarkers` | `{start, end}[]` | `DEFAULT_REGION_MARKERS` | Region marker pairs. Each `start`/`end` is a RegExp where group 1 captures the region name. Defaults cover `#` and `//` comments. |
-| `stripPatterns` | `RegExp[]` | `[]` | Additional patterns to strip, merged with the built-in defaults. |
+| `regionMarkers` | `{start, end}[]` | `DEFAULT_REGION_MARKERS` | Region marker pairs. Each `start`/`end` is a RegExp where group 1 captures the region name. |
+| `stripPatterns` | `RegExp[]` | `[]` | Patterns to strip. Merged with defaults unless `replaceDefaultStrip` is true. |
+| `replaceDefaultStrip` | `boolean` | `false` | If true, `stripPatterns` replaces the built-in defaults instead of merging. |
 | `keepAsserts` | `boolean` | `false` | Disable assertion stripping globally. |
 | `attribute` | `string` | `'reference'` | The code fence meta attribute name to look for. |
+
+**Exports** (for composing custom configurations):
+
+| Export | What it is |
+|---|---|
+| `DEFAULT_REGION_MARKERS` | Default region marker pairs (`#` and `//` comments) |
+| `PRESET_MARKERS` | Additional markers: `.css`, `.html`, `.sql` |
+| `DEFAULT_STRIP_PATTERNS` | All built-in strip patterns (union of all presets) |
+| `PRESET_STRIP` | Strip patterns by language: `.python`, `.rust`, `.java`, `.js`, `.cpp`, `.go`, `.markers` |
 
 ```js
 remarkPlugins: [[codeRegion, {
@@ -223,9 +264,8 @@ remarkPlugins: [[codeRegion, {
     codeRegion.PRESET_MARKERS.css,
     codeRegion.PRESET_MARKERS.sql,
   ],
-  stripPatterns: [/^\s*check\(/],
-  keepAsserts: false,
-  attribute: 'reference',
+  stripPatterns: [...codeRegion.PRESET_STRIP.python, ...codeRegion.PRESET_STRIP.js],
+  replaceDefaultStrip: true,
 }]],
 ```
 

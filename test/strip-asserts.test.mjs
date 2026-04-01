@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { stripAsserts, cleanCode } from '../lib/strip-asserts.mjs';
-import { DEFAULT_STRIP_PATTERNS } from '../lib/patterns.mjs';
+import { DEFAULT_STRIP_PATTERNS, PRESET_STRIP } from '../lib/patterns.mjs';
 
 describe('stripAsserts', () => {
   // stripAsserts removes matching lines — no blank line remains
@@ -51,6 +51,37 @@ describe('stripAsserts', () => {
     const code = 'import mhn\nrows = mhn.loads(text)\nprint(rows)';
     const result = stripAsserts(code, DEFAULT_STRIP_PATTERNS);
     expect(result).toBe(code);
+  });
+});
+
+describe('PRESET_STRIP groups', () => {
+  it('python preset strips only Python asserts', () => {
+    const code = 'assert x == 1\nexpect(y).toBe(2)\nassert_eq!(z, 3);';
+    const result = stripAsserts(code, PRESET_STRIP.python);
+    expect(result).toBe('expect(y).toBe(2)\nassert_eq!(z, 3);');
+  });
+
+  it('js preset strips only expect()', () => {
+    const code = 'assert x == 1\nexpect(y).toBe(2)\nassert_eq!(z, 3);';
+    const result = stripAsserts(code, PRESET_STRIP.js);
+    expect(result).toBe('assert x == 1\nassert_eq!(z, 3);');
+  });
+
+  it('rust preset strips only assert_eq!/assert_ne!', () => {
+    const code = 'assert x == 1\nassert_eq!(z, 3);\nassert_ne!(a, b);';
+    const result = stripAsserts(code, PRESET_STRIP.rust);
+    expect(result).toBe('assert x == 1');
+  });
+
+  it('markers preset strips test-only comments', () => {
+    const code = 'x = 1  # test-only\ny = 2\nz = 3  // test-only';
+    const result = stripAsserts(code, PRESET_STRIP.markers);
+    expect(result).toBe('y = 2');
+  });
+
+  it('DEFAULT_STRIP_PATTERNS is the union of all presets', () => {
+    const presetTotal = Object.values(PRESET_STRIP).flat().length;
+    expect(DEFAULT_STRIP_PATTERNS.length).toBe(presetTotal);
   });
 });
 

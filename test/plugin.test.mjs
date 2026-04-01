@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { remark } from 'remark';
-import remarkCodeRegion from '../index.mjs';
+import remarkCodeRegion, { PRESET_STRIP } from '../index.mjs';
 import { PRESET_MARKERS } from '../lib/patterns.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -104,6 +104,47 @@ describe('remarkCodeRegion plugin', () => {
     const input = '```python reference="snippets/example.py#with_asserts"\n```';
     const output = process(input, { keepAsserts: true });
     expect(output).toContain('assert result == 4');
+  });
+
+  it('replaces default strip patterns when replaceDefaultStrip is true', () => {
+    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    // Replace defaults with an empty list — nothing gets stripped
+    const output = process(input, { stripPatterns: [], replaceDefaultStrip: true });
+    expect(output).toContain('assert result == 4');
+    expect(output).toContain('assert type(result)');
+  });
+
+  it('replaceDefaultStrip with custom patterns strips only those', () => {
+    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    // Only strip "assert type" lines, keep "assert result"
+    const output = process(input, {
+      stripPatterns: [/^\s*assert type/],
+      replaceDefaultStrip: true,
+    });
+    expect(output).toContain('assert result == 4');
+    expect(output).not.toContain('assert type(result)');
+  });
+
+  it('PRESET_STRIP groups can be composed', () => {
+    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    // Use only Python preset — should still strip assert lines
+    const output = process(input, {
+      stripPatterns: [...PRESET_STRIP.python, ...PRESET_STRIP.markers],
+      replaceDefaultStrip: true,
+    });
+    expect(output).not.toContain('assert result');
+    expect(output).not.toContain('assert type');
+    expect(output).toContain('result = 2 + 2');
+  });
+
+  it('PRESET_STRIP.js strips expect() when used alone', () => {
+    const input = '```js reference="snippets/example.js#with_expects"\n```';
+    const output = process(input, {
+      stripPatterns: [...PRESET_STRIP.js],
+      replaceDefaultStrip: true,
+    });
+    expect(output).not.toContain('expect(');
+    expect(output).toContain('console.log');
   });
 });
 

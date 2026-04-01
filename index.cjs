@@ -39,25 +39,26 @@ const PRESET_MARKERS = {
   },
 };
 
-// --- Default strip patterns ---
+// --- Strip pattern presets ---
+
+const PRESET_STRIP = {
+  python: [/^\s*assert\s/],
+  rust: [/^\s*assert_eq!\s*\(/, /^\s*assert_ne!\s*\(/],
+  java: [
+    /^\s*assertEquals\s*\(/, /^\s*assertNotEquals\s*\(/,
+    /^\s*assertNull\s*\(/, /^\s*assertNotNull\s*\(/,
+    /^\s*assertThrows\s*\(/, /^\s*assertTrue\s*\(/, /^\s*assertFalse\s*\(/,
+  ],
+  js: [/^\s*expect\s*\(/],
+  cpp: [/^\s*ASSERT_/, /^\s*EXPECT_/],
+  go: [/^\s*if err != nil \{\s*t\.Fatal/],
+  markers: [/.*\/\/\s*test-only\s*$/, /.*#\s*test-only\s*$/],
+};
 
 const DEFAULT_STRIP_PATTERNS = [
-  /^\s*assert\s/,
-  /^\s*assert_eq!\s*\(/,
-  /^\s*assert_ne!\s*\(/,
-  /^\s*assertEquals\s*\(/,
-  /^\s*assertNotEquals\s*\(/,
-  /^\s*assertNull\s*\(/,
-  /^\s*assertNotNull\s*\(/,
-  /^\s*assertThrows\s*\(/,
-  /^\s*assertTrue\s*\(/,
-  /^\s*assertFalse\s*\(/,
-  /^\s*expect\s*\(/,
-  /^\s*ASSERT_/,
-  /^\s*EXPECT_/,
-  /^\s*if err != nil \{\s*t\.Fatal/,
-  /.*\/\/\s*test-only\s*$/,
-  /.*#\s*test-only\s*$/,
+  ...PRESET_STRIP.python, ...PRESET_STRIP.rust, ...PRESET_STRIP.java,
+  ...PRESET_STRIP.js, ...PRESET_STRIP.cpp, ...PRESET_STRIP.go,
+  ...PRESET_STRIP.markers,
 ];
 
 // --- Extract region ---
@@ -133,11 +134,14 @@ function remarkCodeRegion(options = {}) {
     rootDir,
     regionMarkers = DEFAULT_REGION_MARKERS,
     stripPatterns = [],
+    replaceDefaultStrip = false,
     keepAsserts: globalKeepAsserts = false,
     attribute = 'reference',
   } = options;
 
-  const allPatterns = [...DEFAULT_STRIP_PATTERNS, ...stripPatterns];
+  const allPatterns = replaceDefaultStrip
+    ? stripPatterns
+    : [...DEFAULT_STRIP_PATTERNS, ...stripPatterns];
   const attrRegex = new RegExp(`${attribute}="([^"]+)"`);
 
   return (tree, file) => {
@@ -188,5 +192,7 @@ function remarkCodeRegion(options = {}) {
 
 remarkCodeRegion.DEFAULT_REGION_MARKERS = DEFAULT_REGION_MARKERS;
 remarkCodeRegion.PRESET_MARKERS = PRESET_MARKERS;
+remarkCodeRegion.PRESET_STRIP = PRESET_STRIP;
+remarkCodeRegion.DEFAULT_STRIP_PATTERNS = DEFAULT_STRIP_PATTERNS;
 
 module.exports = remarkCodeRegion;

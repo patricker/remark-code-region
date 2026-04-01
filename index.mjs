@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractRegion } from './lib/extract-region.mjs';
 import { cleanCode } from './lib/strip-asserts.mjs';
-import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS } from './lib/patterns.mjs';
+import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS, PRESET_STRIP } from './lib/patterns.mjs';
 
 /**
  * @typedef {Object} RegionMarker
@@ -29,7 +29,8 @@ import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS } from './lib/patterns.m
  * @typedef {Object} Options
  * @property {string} [rootDir] - Base directory for resolving reference paths. Defaults to process.cwd().
  * @property {RegionMarker[]} [regionMarkers] - Region marker pairs. Defaults cover # and // comments. Add pairs for CSS, SQL, etc.
- * @property {RegExp[]} [stripPatterns] - Additional patterns to strip (merged with defaults).
+ * @property {RegExp[]} [stripPatterns] - Additional patterns to strip. Merged with defaults unless replaceDefaultStrip is true.
+ * @property {boolean} [replaceDefaultStrip=false] - If true, stripPatterns replaces defaults instead of merging.
  * @property {boolean} [keepAsserts=false] - If true, disable assertion stripping globally.
  * @property {string} [attribute='reference'] - The code fence meta attribute name to look for.
  */
@@ -45,12 +46,15 @@ export default function remarkCodeRegion(options = {}) {
     rootDir,
     regionMarkers = DEFAULT_REGION_MARKERS,
     stripPatterns = [],
+    replaceDefaultStrip = false,
     keepAsserts: globalKeepAsserts = false,
     attribute = 'reference',
   } = options;
 
-  // Merge user patterns with defaults
-  const allPatterns = [...DEFAULT_STRIP_PATTERNS, ...stripPatterns];
+  // Merge or replace strip patterns
+  const allPatterns = replaceDefaultStrip
+    ? stripPatterns
+    : [...DEFAULT_STRIP_PATTERNS, ...stripPatterns];
 
   // Build the regex to find the attribute in code fence meta
   const attrRegex = new RegExp(`${attribute}="([^"]+)"`);
@@ -110,4 +114,4 @@ export default function remarkCodeRegion(options = {}) {
 }
 
 // Re-export presets for convenience
-export { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from './lib/patterns.mjs';
+export { DEFAULT_REGION_MARKERS, PRESET_MARKERS, PRESET_STRIP, DEFAULT_STRIP_PATTERNS } from './lib/patterns.mjs';
