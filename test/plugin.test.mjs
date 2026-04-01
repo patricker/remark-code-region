@@ -88,21 +88,20 @@ describe('remarkCodeRegion — errors', () => {
   });
 
   it('throws on unclosed region', () => {
-    // Create inline content with an unclosed region
-    const input = '```python reference="snippets/example.py#nope"\n```';
-    // (The existing fixture doesn't have unclosed regions, so this just hits "not found")
-    expect(() => process(input)).toThrow();
+    const input = '```python reference="snippets/unclosed.py#oops"\n```';
+    expect(() => process(input)).toThrow('was opened but never closed');
   });
 });
 
 describe('remarkCodeRegion — auto-dedent', () => {
   it('removes common leading whitespace from indented regions', () => {
-    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    const input = '```python reference="snippets/indented.py#create_user"\n```';
     const output = process(input);
-    // The region content is inside a test function (no indent in this fixture,
-    // but verify dedent doesn't break non-indented code)
-    expect(output).toContain('result = 2 + 2');
-    expect(output).not.toMatch(/^    result/m);
+    // The region is indented 8 spaces in the source (inside class + method).
+    // After dedent, code should start at column 0.
+    expect(output).toContain('from myapp import client');
+    expect(output).not.toMatch(/^ {8}from myapp/m);
+    expect(output).toMatch(/^from myapp/m);
   });
 });
 
@@ -113,11 +112,13 @@ describe('remarkCodeRegion — security', () => {
   });
 
   it('allows outside references when allowOutsideRoot is true', () => {
-    // Reference a file we know exists outside fixtures but inside the project
-    const input = '```python reference="snippets/example.py#hello"\n```';
-    // This should work normally (within root)
+    // Reference a file outside the fixtures root (go up two levels to project README)
+    const input = '```markdown reference="../../README.md"\n```';
+    // Without allowOutsideRoot, this would throw
+    expect(() => process(input)).toThrow('resolves outside the root directory');
+    // With allowOutsideRoot, it should succeed
     const output = process(input, { allowOutsideRoot: true });
-    expect(output).toContain('name = "World"');
+    expect(output).toContain('remark-code-region');
   });
 });
 
