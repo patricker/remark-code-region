@@ -37,6 +37,8 @@ If the test breaks, CI fails. If the region moves, the build fails. **Stale docs
 
 ## Quick start
 
+Code fences without `reference` are untouched -- migrate one block at a time.
+
 Install:
 
 ```bash
@@ -197,10 +199,12 @@ These patterns are removed from injected code by default:
 | `go` | `if err != nil { t.Fatal` | Go |
 | `markers` | Lines ending with `// test-only` or `# test-only` | Any |
 
-To keep assertions visible in a specific block, append `?keepAsserts`:
+The `assert` and `expect()` patterns match lines starting with these keywords. If your library uses these as API calls (not test assertions), pass a custom `strip` list using `PRESET_STRIP` to include only the languages you need.
+
+To keep assertions visible in a specific block, append `?noStrip`:
 
 ````markdown
-```python reference="tests/test_users.py#create_user?keepAsserts"
+```python reference="tests/test_users.py#create_user?noStrip"
 ```
 ````
 
@@ -214,26 +218,55 @@ const { PRESET_STRIP } = codeRegion;
 
 remarkPlugins: [[codeRegion, {
   // Only strip Python asserts, JS expects, and test-only markers
-  stripPatterns: [...PRESET_STRIP.python, ...PRESET_STRIP.js, ...PRESET_STRIP.markers],
-  replaceDefaultStrip: true,
+  strip: [...PRESET_STRIP.python, ...PRESET_STRIP.js, ...PRESET_STRIP.markers],
 }]],
 ```
 
 Available presets: `python`, `rust`, `java`, `js`, `cpp`, `go`, `markers`.
 
-You can also add custom patterns alongside the defaults (no `replaceDefaultStrip` needed):
+You can also add custom patterns alongside the defaults:
 
 ```js
+const codeRegion = require('remark-code-region');
+const { PRESET_STRIP } = codeRegion;
+
 remarkPlugins: [[codeRegion, {
-  // Add to defaults — strip lines matching your custom test helper
-  stripPatterns: [/^\s*check\(/, /^\s*verify\(/],
+  // Custom list — defaults plus your own test helpers
+  strip: [
+    ...PRESET_STRIP.python,
+    ...PRESET_STRIP.js,
+    ...PRESET_STRIP.markers,
+    /^\s*check\(/,
+    /^\s*verify\(/,
+  ],
 }]],
 ```
 
 Or disable stripping entirely:
 
 ```js
-remarkPlugins: [[codeRegion, { keepAsserts: true }]],
+remarkPlugins: [[codeRegion, { strip: false }]],
+```
+
+## Auto-dedent
+
+Extracted regions are automatically dedented. Common leading whitespace is removed so that code nested inside test functions or classes renders flush-left in your docs. No option needed -- this is always on.
+
+For example, code indented inside a test function:
+
+```python
+def test_create_user():
+    # region: create_user
+    from myapp import client
+    user = client.create_user(name="Alice")
+    # endregion: create_user
+```
+
+...renders as:
+
+```python
+from myapp import client
+user = client.create_user(name="Alice")
 ```
 
 ## Options
@@ -241,11 +274,9 @@ remarkPlugins: [[codeRegion, { keepAsserts: true }]],
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `rootDir` | `string` | `process.cwd()` | Base directory for resolving reference paths. |
+| `allowOutsideRoot` | `boolean` | `false` | Allow references to files outside `rootDir`. Disabled by default as a security boundary. |
 | `regionMarkers` | `{start, end}[]` | `DEFAULT_REGION_MARKERS` | Region marker pairs. Each `start`/`end` is a RegExp where group 1 captures the region name. |
-| `stripPatterns` | `RegExp[]` | `[]` | Patterns to strip. Merged with defaults unless `replaceDefaultStrip` is true. |
-| `replaceDefaultStrip` | `boolean` | `false` | If true, `stripPatterns` replaces the built-in defaults instead of merging. |
-| `keepAsserts` | `boolean` | `false` | Disable assertion stripping globally. |
-| `attribute` | `string` | `'reference'` | The code fence meta attribute name to look for. |
+| `strip` | `RegExp[]` \| `false` | `undefined` (defaults) | Patterns to strip from injected code. `undefined` uses the built-in defaults. `false` disables stripping. `RegExp[]` replaces the defaults with your custom list. |
 
 **Exports** (for composing custom configurations):
 
@@ -253,7 +284,6 @@ remarkPlugins: [[codeRegion, { keepAsserts: true }]],
 |---|---|
 | `DEFAULT_REGION_MARKERS` | Default region marker pairs (`#` and `//` comments) |
 | `PRESET_MARKERS` | Additional markers: `.css`, `.html`, `.sql` |
-| `DEFAULT_STRIP_PATTERNS` | All built-in strip patterns (union of all presets) |
 | `PRESET_STRIP` | Strip patterns by language: `.python`, `.rust`, `.java`, `.js`, `.cpp`, `.go`, `.markers` |
 
 ```js
@@ -264,8 +294,7 @@ remarkPlugins: [[codeRegion, {
     codeRegion.PRESET_MARKERS.css,
     codeRegion.PRESET_MARKERS.sql,
   ],
-  stripPatterns: [...codeRegion.PRESET_STRIP.python, ...codeRegion.PRESET_STRIP.js],
-  replaceDefaultStrip: true,
+  strip: [...codeRegion.PRESET_STRIP.python, ...codeRegion.PRESET_STRIP.js],
 }]],
 ```
 
@@ -277,7 +306,17 @@ If a referenced file is missing or a region doesn't exist, **the build fails**:
 Error: remark-code-region: region 'create_user' not found in tests/test_users.py
 ```
 
+If a region is opened but never closed, **the build fails**:
+
+```
+Error: remark-code-region: region 'create_user' in tests/test_users.py was opened but never closed
+```
+
 This is intentional. Silent stale docs are worse than a build error.
+
+## MDX compatibility
+
+Works inside MDX components (`<Tabs>`, admonitions) -- the plugin runs at the remark AST level, before MDX processing. Any code fence with a `reference` attribute will be resolved, regardless of where it sits in the markdown tree.
 
 ## Framework support
 
@@ -324,6 +363,8 @@ const result = await remark()
   .process(markdown);
 ```
 
+VitePress uses markdown-it (not remark) and is not compatible.
+
 ## Why not remark-code-import?
 
 [remark-code-import](https://github.com/kevin940726/remark-code-import) includes code from files using line ranges (`#L3-L6`). It's good for static inclusion, but:
@@ -331,12 +372,14 @@ const result = await remark()
 | Feature | remark-code-import | remark-code-region |
 |---|---|---|
 | Include from file | `file=./path.js#L3-L6` | `reference="path.py#region_name"` |
-| **Named regions** | No | Yes — stable across edits |
+| **Named regions** | No | Yes -- stable across edits |
 | **Strip test lines** | No | Auto-strips asserts, expects, test-only markers |
+| **Auto-dedent** | Yes | Yes |
+| **Security boundary** | Yes | Yes (`allowOutsideRoot` defaults to false) |
 | Fail on missing file | Yes | Yes |
 | Line ranges | Yes | No (regions don't shift when code is edited) |
 
-Both plugins fail on missing files. The key difference is **how you target code**. Line ranges (`#L3-L6`) shift every time you add or remove a line above them. Named regions are anchored by markers in the source — edit freely above or below, the region stays correct. And auto-stripping test assertions is what makes "code lives in test files" practical — without it, you'd need separate display-only copies.
+Both plugins fail on missing files. The key difference is **how you target code**. Line ranges (`#L3-L6`) shift every time you add or remove a line above them. Named regions are anchored by markers in the source -- edit freely above or below, the region stays correct. And auto-stripping test assertions is what makes "code lives in test files" practical -- without it, you'd need separate display-only copies.
 
 ## License
 

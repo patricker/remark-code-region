@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { stripAsserts, cleanCode } from '../lib/strip-asserts.mjs';
+import { stripAsserts, cleanCode, dedent } from '../lib/strip-asserts.mjs';
 import { DEFAULT_STRIP_PATTERNS, PRESET_STRIP } from '../lib/patterns.mjs';
 
 describe('stripAsserts', () => {
-  // stripAsserts removes matching lines — no blank line remains
-
   it('strips Python assert', () => {
     const code = 'x = 1\nassert x == 1\nprint(x)';
     const result = stripAsserts(code, DEFAULT_STRIP_PATTERNS);
@@ -85,23 +83,55 @@ describe('PRESET_STRIP groups', () => {
   });
 });
 
+describe('dedent', () => {
+  it('removes common leading whitespace', () => {
+    const code = '    x = 1\n    y = 2\n    z = 3';
+    expect(dedent(code)).toBe('x = 1\ny = 2\nz = 3');
+  });
+
+  it('preserves relative indentation', () => {
+    const code = '        def foo():\n            return 1';
+    expect(dedent(code)).toBe('def foo():\n    return 1');
+  });
+
+  it('handles mixed indent with blank lines', () => {
+    const code = '    line1\n\n    line3\n        line4';
+    expect(dedent(code)).toBe('line1\n\nline3\n    line4');
+  });
+
+  it('returns code unchanged if no common indent', () => {
+    const code = 'x = 1\n  y = 2';
+    expect(dedent(code)).toBe('x = 1\n  y = 2');
+  });
+
+  it('handles all-empty input', () => {
+    expect(dedent('')).toBe('');
+    expect(dedent('\n\n')).toBe('\n\n');
+  });
+});
+
 describe('cleanCode', () => {
-  it('strips asserts and collapses blank lines', () => {
-    const code = 'x = 1\nassert x == 1\n\n\n\nprint(x)';
+  it('strips asserts, dedents, and collapses blank lines', () => {
+    const code = '    x = 1\n    assert x == 1\n\n\n\n    print(x)';
     const result = cleanCode(code, { patterns: DEFAULT_STRIP_PATTERNS });
     expect(result).toBe('x = 1\n\nprint(x)');
   });
 
-  it('respects keepAsserts', () => {
-    const code = 'x = 1\nassert x == 1';
-    const result = cleanCode(code, { keepAsserts: true, patterns: DEFAULT_STRIP_PATTERNS });
+  it('respects noStrip', () => {
+    const code = '    x = 1\n    assert x == 1';
+    const result = cleanCode(code, { noStrip: true, patterns: DEFAULT_STRIP_PATTERNS });
     expect(result).toBe('x = 1\nassert x == 1');
   });
 
   it('trims leading and trailing whitespace', () => {
-    // trim() removes leading whitespace from the whole string
     const code = '\n\nx = 1\ny = 2\n\n';
     const result = cleanCode(code, { patterns: DEFAULT_STRIP_PATTERNS });
     expect(result).toBe('x = 1\ny = 2');
+  });
+
+  it('dedents even without stripping', () => {
+    const code = '    hello\n    world';
+    const result = cleanCode(code, { noStrip: true, patterns: [] });
+    expect(result).toBe('hello\nworld');
   });
 });

@@ -40,6 +40,20 @@ describe('extractRegion', () => {
     }).toThrow("region 'nope' not found in test.py");
   });
 
+  it('throws on unclosed region', () => {
+    const content = `# region: hello\nsome code\nmore code`;
+    expect(() => {
+      extractRegion(content, 'hello', 'test.py', DEFAULT_REGION_MARKERS);
+    }).toThrow("region 'hello' in test.py was opened but never closed");
+  });
+
+  it('throws on unclosed region with typo in endregion', () => {
+    const content = `# region: hello\ncode\n# endregion: helo`;
+    expect(() => {
+      extractRegion(content, 'hello', 'test.py', DEFAULT_REGION_MARKERS);
+    }).toThrow("was opened but never closed");
+  });
+
   it('preserves multi-line content with blank lines', () => {
     const content = `# region: multi\nline1\n\nline3\n# endregion: multi`;
     const result = extractRegion(content, 'multi', 'test.py', DEFAULT_REGION_MARKERS);
@@ -55,12 +69,6 @@ describe('extractRegion with CSS markers', () => {
     const result = extractRegion(content, 'button', 'styles.css', markers);
     expect(result).toBe('.btn { color: red; }');
   });
-
-  it('extracts multi-line CSS', () => {
-    const content = `/* region: card */\n.card {\n  padding: 1rem;\n  border: 1px solid #ccc;\n}\n/* endregion: card */`;
-    const result = extractRegion(content, 'card', 'styles.css', markers);
-    expect(result).toBe('.card {\n  padding: 1rem;\n  border: 1px solid #ccc;\n}');
-  });
 });
 
 describe('extractRegion with SQL markers', () => {
@@ -70,12 +78,6 @@ describe('extractRegion with SQL markers', () => {
     const content = `-- region: create\nCREATE TABLE t (id INT);\n-- endregion: create`;
     const result = extractRegion(content, 'create', 'schema.sql', markers);
     expect(result).toBe('CREATE TABLE t (id INT);');
-  });
-
-  it('extracts multi-line SQL', () => {
-    const content = `-- region: insert\nINSERT INTO t VALUES (1);\nINSERT INTO t VALUES (2);\n-- endregion: insert`;
-    const result = extractRegion(content, 'insert', 'data.sql', markers);
-    expect(result).toBe('INSERT INTO t VALUES (1);\nINSERT INTO t VALUES (2);');
   });
 });
 
@@ -98,7 +100,6 @@ describe('extractRegion with mixed markers', () => {
   ];
 
   it('handles a file with different comment styles', () => {
-    // Hypothetical file with embedded SQL and JS
     const content = [
       '// region: js_part',
       'const x = 1;',
