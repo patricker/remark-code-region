@@ -285,6 +285,7 @@ user = client.create_user(name="Alice")
 | `DEFAULT_REGION_MARKERS` | Default region marker pairs (`#` and `//` comments) |
 | `PRESET_MARKERS` | Additional markers: `.css`, `.html`, `.sql` |
 | `PRESET_STRIP` | Strip patterns by language: `.python`, `.rust`, `.java`, `.js`, `.cpp`, `.go`, `.markers` |
+| `DEFAULT_STRIP_PATTERNS` | All built-in strip patterns (union of all `PRESET_STRIP` groups) |
 
 ```js
 remarkPlugins: [[codeRegion, {

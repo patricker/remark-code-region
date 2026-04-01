@@ -14,10 +14,11 @@
   "files": [
     "index.mjs",
     "index.cjs",
+    "index.build.cjs",
     "lib/"
   ],
   "scripts": {
-    "build": "esbuild index.mjs --bundle --platform=node --format=cjs --outfile=index.cjs --packages=external",
+    "build": "esbuild index.mjs --bundle --platform=node --format=cjs --outfile=index.build.cjs --packages=external",
     "prepublishOnly": "npm run build && npm test",
     "test": "vitest run",
     "test:watch": "vitest"
