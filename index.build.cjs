@@ -29,8 +29,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // index.mjs
 var index_exports = {};
 __export(index_exports, {
+  DEFAULT_CLEAN: () => DEFAULT_CLEAN,
   DEFAULT_REGION_MARKERS: () => DEFAULT_REGION_MARKERS,
   DEFAULT_STRIP_PATTERNS: () => DEFAULT_STRIP_PATTERNS,
+  PRESET_CLEAN: () => PRESET_CLEAN,
   PRESET_MARKERS: () => PRESET_MARKERS,
   PRESET_STRIP: () => PRESET_STRIP,
   default: () => remarkCodeRegion
@@ -87,6 +89,29 @@ function extractRegion(content, regionName, filePath, markers) {
   return captured.join("\n");
 }
 
+// lib/extract-lines.mjs
+var LINE_RANGE_RE = /^L(\d+)(?:-(?:L?(\d+))?)?$/;
+function extractLines(content, lineSpec, filePath) {
+  const m = lineSpec.match(LINE_RANGE_RE);
+  if (!m) {
+    throw new Error(`remark-code-region: invalid line range '${lineSpec}' in ${filePath}`);
+  }
+  const lines = content.split("\n");
+  const total = lines.length;
+  const start = parseInt(m[1], 10);
+  const end = m[2] != null ? parseInt(m[2], 10) : m[0].includes("-") ? total : start;
+  if (start < 1 || start > total) {
+    throw new Error(`remark-code-region: line ${start} is out of range (${filePath} has ${total} lines)`);
+  }
+  if (end > total) {
+    throw new Error(`remark-code-region: line ${end} is out of range (${filePath} has ${total} lines)`);
+  }
+  if (end < start) {
+    throw new Error(`remark-code-region: start line ${start} is after end line ${end} in ${filePath}`);
+  }
+  return lines.slice(start - 1, end).join("\n");
+}
+
 // lib/strip-asserts.mjs
 function stripAsserts(code, patterns) {
   return code.split("\n").filter((line) => !patterns.some((pat) => pat.test(line))).join("\n");
@@ -99,14 +124,28 @@ function dedent(code) {
   if (minIndent === 0) return code;
   return lines.map((l) => l.length >= minIndent ? l.slice(minIndent) : l).join("\n");
 }
-function cleanCode(code, { noStrip = false, patterns = [] } = {}) {
+function cleanCode(code, { noStrip = false, patterns = [], clean = ["dedent", "collapse", "trim"] } = {}) {
   let result = code;
   if (!noStrip && patterns.length > 0) {
     result = stripAsserts(result, patterns);
   }
-  result = dedent(result);
-  result = result.replace(/\n{3,}/g, "\n\n");
-  return result.trim();
+  for (const step of clean) {
+    switch (step) {
+      case "dedent":
+        result = dedent(result);
+        break;
+      case "collapse":
+        result = result.replace(/\n{3,}/g, "\n\n");
+        break;
+      case "trim":
+        result = result.trim();
+        break;
+      case "trimEnd":
+        result = result.trimEnd();
+        break;
+    }
+  }
+  return result;
 }
 
 // lib/patterns.mjs
@@ -197,33 +236,60 @@ var DEFAULT_STRIP_PATTERNS = [
   ...PRESET_STRIP.go,
   ...PRESET_STRIP.markers
 ];
+var PRESET_CLEAN = {
+  /** Default: dedent, collapse blank runs, trim both ends. */
+  default: ["dedent", "collapse", "trim"],
+  /** remark-code-import compat: only strip trailing whitespace (no dedent, no collapse). */
+  compat: ["trimEnd"]
+};
+var DEFAULT_CLEAN = PRESET_CLEAN.default;
 
 // index.mjs
 var REF_REGEX = /reference="([^"]+)"/;
+var FILE_REGEX = /(?:^|\s)file=((?:[^\s\\]|\\.)+)/;
+var LINE_RANGE_RE2 = /^L(\d+)(?:-(?:L?(\d+))?)?$/;
+var ROOT_DIR_PREFIX = "<rootDir>/";
 function remarkCodeRegion(options = {}) {
   const {
     rootDir,
     allowOutsideRoot = false,
     regionMarkers = DEFAULT_REGION_MARKERS,
-    strip
+    strip,
+    clean,
+    preserveFileMeta = false
   } = options;
   const stripPatterns = strip === false ? [] : Array.isArray(strip) ? strip : DEFAULT_STRIP_PATTERNS;
+  const cleanSteps = clean === false ? [] : Array.isArray(clean) ? clean : DEFAULT_CLEAN;
   return (tree, file) => {
     const baseDir = rootDir || file?.cwd || process.cwd();
     const resolvedBase = import_node_path.default.resolve(baseDir);
     (0, import_unist_util_visit.visit)(tree, "code", (node) => {
       if (!node.meta) return;
       const refMatch = node.meta.match(REF_REGEX);
-      if (!refMatch) return;
-      let ref = refMatch[1];
-      const qIndex = ref.indexOf("?");
-      const flags = qIndex >= 0 ? ref.slice(qIndex + 1).split("&") : [];
-      ref = qIndex >= 0 ? ref.slice(0, qIndex) : ref;
+      const fileMatch = !refMatch ? node.meta.match(FILE_REGEX) : null;
+      if (!refMatch && !fileMatch) return;
+      const isFileDirective = !!fileMatch;
+      let raw = isFileDirective ? fileMatch[1] : refMatch[1];
+      if (isFileDirective) {
+        raw = raw.replace(/\\(.)/g, "$1");
+      }
+      let resolveDir;
+      if (!isFileDirective) {
+        resolveDir = baseDir;
+      } else if (raw.startsWith(ROOT_DIR_PREFIX)) {
+        raw = raw.slice(ROOT_DIR_PREFIX.length);
+        resolveDir = baseDir;
+      } else {
+        resolveDir = file?.dirname || file?.cwd || process.cwd();
+      }
+      const qIndex = raw.indexOf("?");
+      const flags = qIndex >= 0 ? raw.slice(qIndex + 1).split("&") : [];
+      raw = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
       const blockNoStrip = flags.includes("noStrip");
-      const hashIndex = ref.indexOf("#");
-      const filePath = hashIndex >= 0 ? ref.slice(0, hashIndex) : ref;
-      const regionName = hashIndex >= 0 ? ref.slice(hashIndex + 1) : null;
-      const absPath = import_node_path.default.resolve(baseDir, filePath);
+      const hashIndex = raw.indexOf("#");
+      const filePath = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+      const fragment = hashIndex >= 0 ? raw.slice(hashIndex + 1) : null;
+      const absPath = import_node_path.default.resolve(resolveDir, filePath);
       if (!allowOutsideRoot && !absPath.startsWith(resolvedBase + import_node_path.default.sep) && absPath !== resolvedBase) {
         const msg = `remark-code-region: '${filePath}' resolves outside the root directory '${resolvedBase}'`;
         if (file?.fail) {
@@ -245,8 +311,10 @@ function remarkCodeRegion(options = {}) {
       }
       let code;
       try {
-        if (regionName) {
-          code = extractRegion(content, regionName, filePath, regionMarkers);
+        if (fragment && LINE_RANGE_RE2.test(fragment)) {
+          code = extractLines(content, fragment, filePath);
+        } else if (fragment) {
+          code = extractRegion(content, fragment, filePath, regionMarkers);
         } else {
           code = content;
         }
@@ -259,17 +327,26 @@ function remarkCodeRegion(options = {}) {
       }
       code = cleanCode(code, {
         noStrip: blockNoStrip || strip === false,
-        patterns: stripPatterns
+        patterns: stripPatterns,
+        clean: cleanSteps
       });
       node.value = code;
-      node.meta = node.meta.replace(/\s*reference="[^"]*"/, "").trim() || null;
+      if (isFileDirective) {
+        if (!preserveFileMeta) {
+          node.meta = node.meta.replace(/\s*file=(?:[^\s\\]|\\.)+/, "").trim() || null;
+        }
+      } else {
+        node.meta = node.meta.replace(/\s*reference="[^"]*"/, "").trim() || null;
+      }
     });
   };
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  DEFAULT_CLEAN,
   DEFAULT_REGION_MARKERS,
   DEFAULT_STRIP_PATTERNS,
+  PRESET_CLEAN,
   PRESET_MARKERS,
   PRESET_STRIP
 });

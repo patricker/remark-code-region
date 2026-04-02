@@ -7,20 +7,30 @@
  * code fences using named regions. Test your examples in CI, and your docs
  * pull the tested code at build time.
  *
- * @example
- * ```python reference="tests/test_api.py#parse_basic"
- * ```
+ * Supports two syntaxes:
+ *   reference="tests/test_api.py#parse_basic"       — regions, path relative to rootDir
+ *   file=./tests/test_api.py#L3-L6                  — line ranges or regions, path relative to markdown file
  */
 
 import { visit } from 'unist-util-visit';
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractRegion } from './lib/extract-region.mjs';
+import { extractLines } from './lib/extract-lines.mjs';
 import { cleanCode } from './lib/strip-asserts.mjs';
-import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS } from './lib/patterns.mjs';
+import { DEFAULT_STRIP_PATTERNS, DEFAULT_REGION_MARKERS, DEFAULT_CLEAN } from './lib/patterns.mjs';
 
 /** Regex to find reference="..." in code fence meta. */
 const REF_REGEX = /reference="([^"]+)"/;
+
+/** Regex to find file=... (unquoted, backslash-escaped spaces) in code fence meta. */
+const FILE_REGEX = /(?:^|\s)file=((?:[^\s\\]|\\.)+)/;
+
+/** Regex to detect line-range fragments like L3, L3-L6, L3- */
+const LINE_RANGE_RE = /^L(\d+)(?:-(?:L?(\d+))?)?$/;
+
+/** Prefix for rootDir-relative file= paths. */
+const ROOT_DIR_PREFIX = '<rootDir>/';
 
 /**
  * @typedef {Object} RegionMarker
@@ -34,6 +44,8 @@ const REF_REGEX = /reference="([^"]+)"/;
  * @property {boolean} [allowOutsideRoot=false] - Allow references outside rootDir. Default: false (security boundary).
  * @property {RegionMarker[]} [regionMarkers] - Region marker pairs. Defaults cover # and // comments.
  * @property {RegExp[]|false} [strip] - Patterns to strip. false=disable, undefined=defaults, RegExp[]=custom list.
+ * @property {string[]|false} [clean] - Cleaning steps. false=disable, undefined=defaults, string[]=custom list. Steps: 'dedent', 'collapse', 'trim', 'trimEnd'.
+ * @property {boolean} [preserveFileMeta=false] - Keep file= in meta after processing (matches remark-code-import behavior). Default: false (strip it).
  */
 
 /**
@@ -48,6 +60,8 @@ export default function remarkCodeRegion(options = {}) {
     allowOutsideRoot = false,
     regionMarkers = DEFAULT_REGION_MARKERS,
     strip,
+    clean,
+    preserveFileMeta = false,
   } = options;
 
   // Resolve strip patterns: false=none, array=use it, undefined=defaults
@@ -57,6 +71,13 @@ export default function remarkCodeRegion(options = {}) {
       ? strip
       : DEFAULT_STRIP_PATTERNS;
 
+  // Resolve clean steps: false=none, array=use it, undefined=defaults
+  const cleanSteps = clean === false
+    ? []
+    : Array.isArray(clean)
+      ? clean
+      : DEFAULT_CLEAN;
+
   return (tree, file) => {
     const baseDir = rootDir || file?.cwd || process.cwd();
     const resolvedBase = path.resolve(baseDir);
@@ -64,24 +85,46 @@ export default function remarkCodeRegion(options = {}) {
     visit(tree, 'code', (node) => {
       if (!node.meta) return;
 
+      // Try reference= first (takes precedence), then file=
       const refMatch = node.meta.match(REF_REGEX);
-      if (!refMatch) return;
+      const fileMatch = !refMatch ? node.meta.match(FILE_REGEX) : null;
+      if (!refMatch && !fileMatch) return;
 
-      let ref = refMatch[1];
+      const isFileDirective = !!fileMatch;
+      let raw = isFileDirective ? fileMatch[1] : refMatch[1];
+
+      // Unescape backslash-spaces in file= values
+      if (isFileDirective) {
+        raw = raw.replace(/\\(.)/g, '$1');
+      }
+
+      // Determine path resolution base
+      let resolveDir;
+      if (!isFileDirective) {
+        // reference= always resolves relative to rootDir
+        resolveDir = baseDir;
+      } else if (raw.startsWith(ROOT_DIR_PREFIX)) {
+        // file=<rootDir>/... resolves relative to rootDir
+        raw = raw.slice(ROOT_DIR_PREFIX.length);
+        resolveDir = baseDir;
+      } else {
+        // file= resolves relative to the markdown file's directory
+        resolveDir = file?.dirname || file?.cwd || process.cwd();
+      }
 
       // Parse flags from ?query portion
-      const qIndex = ref.indexOf('?');
-      const flags = qIndex >= 0 ? ref.slice(qIndex + 1).split('&') : [];
-      ref = qIndex >= 0 ? ref.slice(0, qIndex) : ref;
+      const qIndex = raw.indexOf('?');
+      const flags = qIndex >= 0 ? raw.slice(qIndex + 1).split('&') : [];
+      raw = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
 
       const blockNoStrip = flags.includes('noStrip');
 
-      // Split file path and region name
-      const hashIndex = ref.indexOf('#');
-      const filePath = hashIndex >= 0 ? ref.slice(0, hashIndex) : ref;
-      const regionName = hashIndex >= 0 ? ref.slice(hashIndex + 1) : null;
+      // Split file path and fragment (region name or line range)
+      const hashIndex = raw.indexOf('#');
+      const filePath = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+      const fragment = hashIndex >= 0 ? raw.slice(hashIndex + 1) : null;
 
-      const absPath = path.resolve(baseDir, filePath);
+      const absPath = path.resolve(resolveDir, filePath);
 
       // Security: prevent references outside root
       if (!allowOutsideRoot && !absPath.startsWith(resolvedBase + path.sep) && absPath !== resolvedBase) {
@@ -100,11 +143,13 @@ export default function remarkCodeRegion(options = {}) {
         throw new Error(msg);
       }
 
-      // Extract region or use full file
+      // Extract: line range, named region, or full file
       let code;
       try {
-        if (regionName) {
-          code = extractRegion(content, regionName, filePath, regionMarkers);
+        if (fragment && LINE_RANGE_RE.test(fragment)) {
+          code = extractLines(content, fragment, filePath);
+        } else if (fragment) {
+          code = extractRegion(content, fragment, filePath, regionMarkers);
         } else {
           code = content;
         }
@@ -113,19 +158,26 @@ export default function remarkCodeRegion(options = {}) {
         throw e;
       }
 
-      // Clean: strip asserts, dedent, collapse blank lines, trim
+      // Clean: strip asserts + whitespace pipeline
       code = cleanCode(code, {
         noStrip: blockNoStrip || strip === false,
         patterns: stripPatterns,
+        clean: cleanSteps,
       });
 
       node.value = code;
 
-      // Remove the reference attribute from meta
-      node.meta = node.meta.replace(/\s*reference="[^"]*"/, '').trim() || null;
+      // Remove the matched attribute from meta.
+      if (isFileDirective) {
+        if (!preserveFileMeta) {
+          node.meta = node.meta.replace(/\s*file=(?:[^\s\\]|\\.)+/, '').trim() || null;
+        }
+      } else {
+        node.meta = node.meta.replace(/\s*reference="[^"]*"/, '').trim() || null;
+      }
     });
   };
 }
 
 // Re-export presets for user composition
-export { DEFAULT_REGION_MARKERS, PRESET_MARKERS, PRESET_STRIP, DEFAULT_STRIP_PATTERNS } from './lib/patterns.mjs';
+export { DEFAULT_REGION_MARKERS, PRESET_MARKERS, PRESET_STRIP, DEFAULT_STRIP_PATTERNS, PRESET_CLEAN, DEFAULT_CLEAN } from './lib/patterns.mjs';
