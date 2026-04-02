@@ -1,35 +1,60 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { extractRegion } from '../lib/extract-region.mjs';
 import { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from '../lib/patterns.mjs';
 
 describe('extractRegion', () => {
   it('extracts a Python region', () => {
     const content = `# region: hello\nprint("hello")\n# endregion: hello`;
-    const result = extractRegion(content, 'hello', 'test.py', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'hello',
+      'test.py',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('print("hello")');
   });
 
   it('extracts a JS region', () => {
     const content = `// region: greet\nconsole.log("hi");\n// endregion: greet`;
-    const result = extractRegion(content, 'greet', 'test.js', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'greet',
+      'test.js',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('console.log("hi");');
   });
 
   it('extracts the correct region when multiple exist', () => {
     const content = `# region: first\naaa\n# endregion: first\n# region: second\nbbb\n# endregion: second`;
-    const result = extractRegion(content, 'second', 'test.py', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'second',
+      'test.py',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('bbb');
   });
 
   it('preserves indentation', () => {
     const content = `// region: indented\n    const x = 1;\n    const y = 2;\n// endregion: indented`;
-    const result = extractRegion(content, 'indented', 'test.js', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'indented',
+      'test.js',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('    const x = 1;\n    const y = 2;');
   });
 
   it('handles empty region', () => {
     const content = `# region: empty\n# endregion: empty`;
-    const result = extractRegion(content, 'empty', 'test.py', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'empty',
+      'test.py',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('');
   });
 
@@ -51,12 +76,17 @@ describe('extractRegion', () => {
     const content = `# region: hello\ncode\n# endregion: helo`;
     expect(() => {
       extractRegion(content, 'hello', 'test.py', DEFAULT_REGION_MARKERS);
-    }).toThrow("was opened but never closed");
+    }).toThrow('was opened but never closed');
   });
 
   it('preserves multi-line content with blank lines', () => {
     const content = `# region: multi\nline1\n\nline3\n# endregion: multi`;
-    const result = extractRegion(content, 'multi', 'test.py', DEFAULT_REGION_MARKERS);
+    const result = extractRegion(
+      content,
+      'multi',
+      'test.py',
+      DEFAULT_REGION_MARKERS,
+    );
     expect(result).toBe('line1\n\nline3');
   });
 });
@@ -109,7 +139,11 @@ describe('extractRegion with mixed markers', () => {
       '-- endregion: sql_part',
     ].join('\n');
 
-    expect(extractRegion(content, 'js_part', 'mixed.txt', allMarkers)).toBe('const x = 1;');
-    expect(extractRegion(content, 'sql_part', 'mixed.txt', allMarkers)).toBe('SELECT * FROM t;');
+    expect(extractRegion(content, 'js_part', 'mixed.txt', allMarkers)).toBe(
+      'const x = 1;',
+    );
+    expect(extractRegion(content, 'sql_part', 'mixed.txt', allMarkers)).toBe(
+      'SELECT * FROM t;',
+    );
   });
 });

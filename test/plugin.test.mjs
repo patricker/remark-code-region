@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { remark } from 'remark';
-import remarkCodeRegion, { PRESET_STRIP, PRESET_CLEAN } from '../index.mjs';
-import { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from '../lib/patterns.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { remark } from 'remark';
+import { describe, expect, it } from 'vitest';
+import remarkCodeRegion, { PRESET_CLEAN, PRESET_STRIP } from '../index.mjs';
+import { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from '../lib/patterns.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures');
@@ -48,7 +48,8 @@ describe('remarkCodeRegion — core', () => {
   });
 
   it('keeps asserts with ?noStrip', () => {
-    const input = '```python reference="snippets/example.py#with_asserts?noStrip"\n```';
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noStrip"\n```';
     const output = process(input);
     expect(output).toContain('assert result == 4');
   });
@@ -76,7 +77,8 @@ describe('remarkCodeRegion — core', () => {
   });
 
   it('removes reference attribute from meta', () => {
-    const input = '```python title="example" reference="snippets/example.py#hello"\n```';
+    const input =
+      '```python title="example" reference="snippets/example.py#hello"\n```';
     const output = process(input);
     expect(output).not.toContain('reference=');
     expect(output).toContain('title="example"');
@@ -175,13 +177,15 @@ describe('remarkCodeRegion — strip option', () => {
 
 describe('remarkCodeRegion — ?noStrip query parsing', () => {
   it('parses ?noStrip flag', () => {
-    const input = '```python reference="snippets/example.py#with_asserts?noStrip"\n```';
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noStrip"\n```';
     const output = process(input);
     expect(output).toContain('assert result == 4');
   });
 
   it('handles multiple flags', () => {
-    const input = '```python reference="snippets/example.py#with_asserts?noStrip&future"\n```';
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noStrip&future"\n```';
     const output = process(input);
     expect(output).toContain('assert result == 4');
   });
@@ -196,8 +200,14 @@ describe('remarkCodeRegion — ?noStrip query parsing', () => {
 describe('remarkCodeRegion — custom region markers', () => {
   const opts = {
     regionMarkers: [
-      { start: /^[ \t]*#\s*region:\s*(\S+)\s*$/, end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/ },
-      { start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/, end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/ },
+      {
+        start: /^[ \t]*#\s*region:\s*(\S+)\s*$/,
+        end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/,
+      },
+      {
+        start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/,
+        end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/,
+      },
       PRESET_MARKERS.css,
     ],
   };
@@ -220,8 +230,14 @@ describe('remarkCodeRegion — custom region markers', () => {
 describe('remarkCodeRegion — SQL + HTML markers', () => {
   const opts = {
     regionMarkers: [
-      { start: /^[ \t]*#\s*region:\s*(\S+)\s*$/, end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/ },
-      { start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/, end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/ },
+      {
+        start: /^[ \t]*#\s*region:\s*(\S+)\s*$/,
+        end: /^[ \t]*#\s*endregion:\s*(\S+)\s*$/,
+      },
+      {
+        start: /^[ \t]*\/\/\s*region:\s*(\S+)\s*$/,
+        end: /^[ \t]*\/\/\s*endregion:\s*(\S+)\s*$/,
+      },
       PRESET_MARKERS.sql,
       PRESET_MARKERS.html,
     ],
@@ -288,20 +304,23 @@ describe('remarkCodeRegion — file= core', () => {
   });
 
   it('keeps asserts with ?noStrip', () => {
-    const input = '```python file=./snippets/example.py#with_asserts?noStrip\n```';
+    const input =
+      '```python file=./snippets/example.py#with_asserts?noStrip\n```';
     const output = processWithPath(input, mdPath);
     expect(output).toContain('assert result == 4');
   });
 
   it('strips file= attribute from meta by default', () => {
-    const input = '```python title="example" file=./snippets/example.py#hello\n```';
+    const input =
+      '```python title="example" file=./snippets/example.py#hello\n```';
     const output = processWithPath(input, mdPath);
     expect(output).not.toContain('file=');
     expect(output).toContain('title="example"');
   });
 
   it('preserves file= in meta when preserveFileMeta is true', () => {
-    const input = '```python title="example" file=./snippets/example.py#hello\n```';
+    const input =
+      '```python title="example" file=./snippets/example.py#hello\n```';
     const output = processWithPath(input, mdPath, { preserveFileMeta: true });
     expect(output).toContain('file=');
     expect(output).toContain('title="example"');
@@ -342,7 +361,9 @@ describe('remarkCodeRegion — file= path resolution', () => {
 describe('remarkCodeRegion — file= security', () => {
   it('blocks path traversal outside rootDir', () => {
     const input = '```js file=../../../etc/passwd\n```';
-    expect(() => processWithPath(input, mdPath)).toThrow('resolves outside the root directory');
+    expect(() => processWithPath(input, mdPath)).toThrow(
+      'resolves outside the root directory',
+    );
   });
 
   it('allows outside references with allowOutsideRoot: true', () => {
@@ -353,7 +374,9 @@ describe('remarkCodeRegion — file= security', () => {
 
   it('blocks <rootDir>/../escape', () => {
     const input = '```js file=<rootDir>/../../../etc/passwd\n```';
-    expect(() => processWithPath(input, mdPath)).toThrow('resolves outside the root directory');
+    expect(() => processWithPath(input, mdPath)).toThrow(
+      'resolves outside the root directory',
+    );
   });
 });
 
@@ -365,17 +388,23 @@ describe('remarkCodeRegion — file= errors', () => {
 
   it('throws on missing region', () => {
     const input = '```python file=./snippets/example.py#nope\n```';
-    expect(() => processWithPath(input, mdPath)).toThrow("region 'nope' not found");
+    expect(() => processWithPath(input, mdPath)).toThrow(
+      "region 'nope' not found",
+    );
   });
 
   it('throws on invalid line range (out of bounds)', () => {
     const input = '```js file=./snippets/say-hi.js#L99\n```';
-    expect(() => processWithPath(input, mdPath)).toThrow('line 99 is out of range');
+    expect(() => processWithPath(input, mdPath)).toThrow(
+      'line 99 is out of range',
+    );
   });
 
   it('throws on unclosed region via file=', () => {
     const input = '```python file=./snippets/unclosed.py#oops\n```';
-    expect(() => processWithPath(input, mdPath)).toThrow('was opened but never closed');
+    expect(() => processWithPath(input, mdPath)).toThrow(
+      'was opened but never closed',
+    );
   });
 });
 
@@ -395,7 +424,9 @@ describe('remarkCodeRegion — file= with strip option', () => {
 
   it('uses custom patterns when strip is an array', () => {
     const input = '```python file=./snippets/example.py#with_asserts\n```';
-    const output = processWithPath(input, mdPath, { strip: [/^\s*assert type/] });
+    const output = processWithPath(input, mdPath, {
+      strip: [/^\s*assert type/],
+    });
     expect(output).toContain('assert result == 4');
     expect(output).not.toContain('assert type(result)');
   });
@@ -422,7 +453,8 @@ describe('remarkCodeRegion — file= auto-dedent', () => {
 
 describe('remarkCodeRegion — file= + reference= precedence', () => {
   it('reference= takes precedence when both present', () => {
-    const input = '```python reference="snippets/example.py#hello" file=./snippets/example.py#with_asserts\n```';
+    const input =
+      '```python reference="snippets/example.py#hello" file=./snippets/example.py#with_asserts\n```';
     const output = processWithPath(input, mdPath);
     expect(output).toContain('name = "World"');
     expect(output).not.toContain('result = 2 + 2');
@@ -444,7 +476,9 @@ describe('remarkCodeRegion — file= custom markers', () => {
 describe('remarkCodeRegion — clean option', () => {
   it('PRESET_CLEAN.compat skips dedent', () => {
     const input = '```python file=./snippets/indented.py#create_user\n```';
-    const output = processWithPath(input, mdPath, { clean: [...PRESET_CLEAN.compat] });
+    const output = processWithPath(input, mdPath, {
+      clean: [...PRESET_CLEAN.compat],
+    });
     // Compat clean only trims — indentation preserved
     expect(output).toMatch(/^ {8}from myapp/m);
   });
@@ -452,14 +486,19 @@ describe('remarkCodeRegion — clean option', () => {
   it('PRESET_CLEAN.compat skips blank-line collapse', () => {
     const input = '```python file=./snippets/example.py\n```';
     const normal = processWithPath(input, mdPath);
-    const compat = processWithPath(input, mdPath, { clean: [...PRESET_CLEAN.compat] });
+    const compat = processWithPath(input, mdPath, {
+      clean: [...PRESET_CLEAN.compat],
+    });
     // Compat output should be at least as long (no collapsing)
     expect(compat.length).toBeGreaterThanOrEqual(normal.length);
   });
 
   it('clean: false disables all cleaning', () => {
     const input = '```python file=./snippets/indented.py#create_user\n```';
-    const output = processWithPath(input, mdPath, { clean: false, strip: false });
+    const output = processWithPath(input, mdPath, {
+      clean: false,
+      strip: false,
+    });
     // No cleaning at all — raw extracted content including indentation
     expect(output).toMatch(/^ {8}from myapp/m);
   });
@@ -467,13 +506,16 @@ describe('remarkCodeRegion — clean option', () => {
   it('custom clean steps work', () => {
     const input = '```python file=./snippets/indented.py#create_user\n```';
     // dedent + trimEnd but no collapse
-    const output = processWithPath(input, mdPath, { clean: ['dedent', 'trimEnd'] });
+    const output = processWithPath(input, mdPath, {
+      clean: ['dedent', 'trimEnd'],
+    });
     expect(output).toMatch(/^from myapp/m);
     expect(output).not.toMatch(/^ {8}from myapp/m);
   });
 
   it('clean applies equally to reference= and file=', () => {
-    const refInput = '```python reference="snippets/indented.py#create_user"\n```';
+    const refInput =
+      '```python reference="snippets/indented.py#create_user"\n```';
     const fileInput = '```python file=./snippets/indented.py#create_user\n```';
     const opts = { clean: [...PRESET_CLEAN.compat] };
     const refOutput = process(refInput, opts);

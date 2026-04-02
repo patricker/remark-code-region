@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { stripAsserts, cleanCode, dedent } from '../lib/strip-asserts.mjs';
+import { describe, expect, it } from 'vitest';
 import { DEFAULT_STRIP_PATTERNS, PRESET_STRIP } from '../lib/patterns.mjs';
+import { cleanCode, dedent, stripAsserts } from '../lib/strip-asserts.mjs';
 
 describe('stripAsserts', () => {
   it('strips Python assert', () => {
@@ -28,13 +28,15 @@ describe('stripAsserts', () => {
   });
 
   it('strips C++ ASSERT_ and EXPECT_', () => {
-    const code = 'int x = 1;\nASSERT_EQ(x, 1);\nEXPECT_TRUE(x > 0);\nstd::cout << x;';
+    const code =
+      'int x = 1;\nASSERT_EQ(x, 1);\nEXPECT_TRUE(x > 0);\nstd::cout << x;';
     const result = stripAsserts(code, DEFAULT_STRIP_PATTERNS);
     expect(result).toBe('int x = 1;\nstd::cout << x;');
   });
 
   it('strips Go error check pattern', () => {
-    const code = 'rows, err := ReadAll(text)\nif err != nil { t.Fatal(err) }\nfmt.Println(rows)';
+    const code =
+      'rows, err := ReadAll(text)\nif err != nil { t.Fatal(err) }\nfmt.Println(rows)';
     const result = stripAsserts(code, DEFAULT_STRIP_PATTERNS);
     expect(result).toBe('rows, err := ReadAll(text)\nfmt.Println(rows)');
   });
@@ -119,7 +121,10 @@ describe('cleanCode', () => {
 
   it('respects noStrip', () => {
     const code = '    x = 1\n    assert x == 1';
-    const result = cleanCode(code, { noStrip: true, patterns: DEFAULT_STRIP_PATTERNS });
+    const result = cleanCode(code, {
+      noStrip: true,
+      patterns: DEFAULT_STRIP_PATTERNS,
+    });
     expect(result).toBe('x = 1\nassert x == 1');
   });
 
