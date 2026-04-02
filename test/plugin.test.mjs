@@ -256,6 +256,136 @@ describe('remarkCodeRegion — SQL + HTML markers', () => {
   });
 });
 
+// ─── multi-region tests ────────────────────────────────────────────────
+
+describe('remarkCodeRegion — multi-region', () => {
+  it('concatenates two named regions with blank line separator', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts"\n```';
+    const output = process(input);
+    // hello region content
+    expect(output).toContain('name = "World"');
+    // with_asserts region content (asserts stripped by default)
+    expect(output).toContain('result = 2 + 2');
+    // Both present in one block
+    expect(output).toContain('print(f"Hello');
+    expect(output).toContain('print(result)');
+  });
+
+  it('concatenates a named region and a line range', () => {
+    const input = '```python reference="snippets/example.py#hello,L6-L8"\n```';
+    const output = process(input);
+    // hello region
+    expect(output).toContain('name = "World"');
+    // Lines 6-8 of example.py (the with_asserts region markers + content)
+    expect(output).toContain('result = 2 + 2');
+  });
+
+  it('works with file= syntax', () => {
+    const input = '```python file=./snippets/example.py#hello,multiline\n```';
+    const output = processWithPath(input, mdPath);
+    expect(output).toContain('name = "World"');
+    expect(output).toContain('def greet(name)');
+  });
+
+  it('applies strip to the concatenated result', () => {
+    const input =
+      '```python reference="snippets/example.py#with_asserts,multiline"\n```';
+    const output = process(input);
+    // Asserts stripped from both regions
+    expect(output).not.toContain('assert result');
+    expect(output).not.toContain('assert message');
+    // Non-assert lines kept
+    expect(output).toContain('result = 2 + 2');
+    expect(output).toContain('def greet(name)');
+  });
+
+  it('dedents based on minimum indent across all regions', () => {
+    // Use indented.py which has 8-space indented content + line range at 0-indent
+    // Lines 1-2 of indented.py are "class TestUsers:" and "    def test_create(self):"
+    // Region create_user is indented 8 spaces
+    // Minimum across both is 0, so the 8-space region stays 8-space
+    const input =
+      '```python reference="snippets/indented.py#L1-L1,create_user"\n```';
+    const output = process(input);
+    // Line 1 is at 0-indent
+    expect(output).toMatch(/^class TestUsers/m);
+    // Region content keeps its 8-space indent relative to the 0-indent line
+    expect(output).toContain('from myapp import client');
+  });
+
+  it('fails if any region is not found', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,nonexistent"\n```';
+    expect(() => process(input)).toThrow("region 'nonexistent' not found");
+  });
+
+  it('fails if any line range is out of bounds', () => {
+    const input = '```python reference="snippets/example.py#hello,L999"\n```';
+    expect(() => process(input)).toThrow('line 999 is out of range');
+  });
+
+  it('respects custom regionSeparator option', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts"\n```';
+    const output = process(input, { regionSeparator: '\n' });
+    expect(output).toContain('print(f"Hello');
+    expect(output).toContain('result = 2 + 2');
+  });
+
+  it('single-region fragment is backward compatible', () => {
+    const input = '```python reference="snippets/example.py#hello"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).toContain('print(f"Hello');
+  });
+
+  it('works with ?noStrip at end of fragment list', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts?noStrip"\n```';
+    const output = process(input);
+    expect(output).toContain('assert result == 4');
+  });
+
+  it('concatenates three regions', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts,multiline"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).toContain('result = 2 + 2');
+    expect(output).toContain('def greet(name)');
+  });
+
+  it('trims whitespace around commas in fragment list', () => {
+    const input =
+      '```python reference="snippets/example.py#hello, with_asserts"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).toContain('result = 2 + 2');
+  });
+
+  it('ignores trailing comma in fragment list', () => {
+    const input = '```python reference="snippets/example.py#hello,"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).not.toContain('result = 2 + 2');
+  });
+
+  it('ignores leading comma in fragment list', () => {
+    const input = '```python reference="snippets/example.py#,hello"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+  });
+
+  it('ignores double comma in fragment list', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,,with_asserts"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).toContain('result = 2 + 2');
+  });
+});
+
 // ─── file= compat tests ───────────────────────────────────────────────
 
 describe('remarkCodeRegion — file= core', () => {

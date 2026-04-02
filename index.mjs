@@ -49,6 +49,7 @@ const ROOT_DIR_PREFIX = '<rootDir>/';
  * @property {RegionMarker[]} [regionMarkers] - Region marker pairs. Defaults cover # and // comments.
  * @property {RegExp[]|false} [strip] - Patterns to strip. false=disable, undefined=defaults, RegExp[]=custom list.
  * @property {string[]|false} [clean] - Cleaning steps. false=disable, undefined=defaults, string[]=custom list. Steps: 'dedent', 'collapse', 'trim', 'trimEnd'.
+ * @property {string} [regionSeparator='\n\n'] - String inserted between concatenated regions in multi-region references.
  * @property {boolean} [preserveFileMeta=false] - Keep file= in meta after processing (matches remark-code-import behavior). Default: false (strip it).
  */
 
@@ -65,6 +66,7 @@ export default function remarkCodeRegion(options = {}) {
     regionMarkers = DEFAULT_REGION_MARKERS,
     strip,
     clean,
+    regionSeparator = '\n\n',
     preserveFileMeta = false,
   } = options;
 
@@ -114,17 +116,25 @@ export default function remarkCodeRegion(options = {}) {
         resolveDir = file?.dirname || file?.cwd || process.cwd();
       }
 
-      // Parse flags from ?query portion
-      const qIndex = raw.indexOf('?');
-      const flags = qIndex >= 0 ? raw.slice(qIndex + 1).split('&') : [];
-      raw = qIndex >= 0 ? raw.slice(0, qIndex) : raw;
+      // Split file path and fragment list, then parse ?flags from the end
+      const hashIndex = raw.indexOf('#');
+      const filePath = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
+      let fragmentStr = hashIndex >= 0 ? raw.slice(hashIndex + 1) : null;
+
+      // Parse flags from ?query at the end of the fragment string
+      const qIndex = fragmentStr ? fragmentStr.indexOf('?') : -1;
+      const flags = qIndex >= 0 ? fragmentStr.slice(qIndex + 1).split('&') : [];
+      fragmentStr = qIndex >= 0 ? fragmentStr.slice(0, qIndex) : fragmentStr;
 
       const blockNoStrip = flags.includes('noStrip');
 
-      // Split file path and fragment (region name or line range)
-      const hashIndex = raw.indexOf('#');
-      const filePath = hashIndex >= 0 ? raw.slice(0, hashIndex) : raw;
-      const fragment = hashIndex >= 0 ? raw.slice(hashIndex + 1) : null;
+      // Split fragments on commas, trim whitespace, drop empties
+      const fragments = fragmentStr
+        ? fragmentStr
+            .split(',')
+            .map((f) => f.trim())
+            .filter(Boolean)
+        : [];
 
       const absPath = path.resolve(resolveDir, filePath);
 
@@ -155,15 +165,21 @@ export default function remarkCodeRegion(options = {}) {
         throw new Error(msg);
       }
 
-      // Extract: line range, named region, or full file
+      // Extract: line ranges, named regions, or full file
       let code;
       try {
-        if (fragment && LINE_RANGE_RE.test(fragment)) {
-          code = extractLines(content, fragment, filePath);
-        } else if (fragment) {
-          code = extractRegion(content, fragment, filePath, regionMarkers);
-        } else {
+        if (fragments.length === 0) {
           code = content;
+        } else {
+          const parts = [];
+          for (const frag of fragments) {
+            if (LINE_RANGE_RE.test(frag)) {
+              parts.push(extractLines(content, frag, filePath));
+            } else {
+              parts.push(extractRegion(content, frag, filePath, regionMarkers));
+            }
+          }
+          code = parts.join(regionSeparator);
         }
       } catch (e) {
         if (file?.fail) {
