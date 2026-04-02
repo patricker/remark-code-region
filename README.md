@@ -7,7 +7,7 @@
 
 **Every code block in your docs is extracted from a passing test.**
 
-Pull tested code straight from your test suite into your Docusaurus, Astro, or any remark-powered docs. Named regions, automatic test-line stripping, hard build failures on drift.
+Pull tested code straight from your test suite into your Docusaurus, Astro, or any remark-powered docs. Named regions, automatic test-line stripping, hard build failures on drift. Drop-in replacement for remark-code-import with full `file=` compatibility.
 
 ## The problem
 
@@ -22,7 +22,7 @@ Write your examples as real, executable tests. Mark regions with comments. Refer
               │   tests/test_sdk.py      │
               │                          │
               │   # region: create_user  │
-              │   user = sdk.create(...) │  ← Runs in CI
+              │   user = sdk.create(...) │  <- Runs in CI
               │   assert user.id         │
               │   # endregion            │
               └────────────┬─────────────┘
@@ -33,7 +33,7 @@ Write your examples as real, executable tests. Mark regions with comments. Refer
               │   docs/quickstart.md     │
               │                          │
               │   ```python              │
-              │   user = sdk.create(...) │  ← Injected (asserts stripped)
+              │   user = sdk.create(...) │  <- Injected (asserts stripped)
               │   ```                    │
               └──────────────────────────┘
 ```
@@ -42,7 +42,7 @@ If the test breaks, CI fails. If the region moves, the build fails. **Stale docs
 
 ## Quick start
 
-Code fences without `reference` are untouched -- migrate one block at a time.
+Code fences without `reference` or `file=` are untouched -- migrate one block at a time.
 
 Install:
 
@@ -101,6 +101,55 @@ print(user)
 
 The `assert` lines are automatically stripped. The region markers are removed. Clean, tested code in your docs.
 
+## Two syntaxes
+
+remark-code-region supports two directive syntaxes. Both go through the same pipeline.
+
+### `reference=` (recommended)
+
+Paths resolve relative to `rootDir` (defaults to `process.cwd()`). The directive is stripped from meta after processing.
+
+````markdown
+```python reference="tests/test_users.py#create_user"
+```
+````
+
+### `file=` (remark-code-import compatible)
+
+Paths resolve relative to the markdown file. Drop-in replacement for remark-code-import -- all existing `file=` references work unchanged.
+
+````markdown
+```python file=./tests/test_users.py#create_user
+```
+````
+
+Use `<rootDir>` to resolve relative to rootDir instead:
+
+````markdown
+```python file=<rootDir>/tests/test_users.py#create_user
+```
+````
+
+Both syntaxes support named regions (`#region_name`), line ranges (`#L3-L6`), and query flags (`?noStrip`).
+
+## Multi-region concatenation
+
+Pull multiple regions from the same file into one code block:
+
+````markdown
+```python reference="tests/test_users.py#imports,create_user"
+```
+````
+
+Regions are joined with a blank line separator (configurable via `regionSeparator`). Mix regions and line ranges:
+
+````markdown
+```python reference="tests/test_users.py#imports,L25-L30,create_user"
+```
+````
+
+Whitespace around commas is trimmed. If any region is missing, the build fails.
+
 ## Region markers
 
 Use comment-style markers that match your language:
@@ -146,35 +195,6 @@ remarkPlugins: [[codeRegion, {
 }]],
 ```
 
-Then use the corresponding comment syntax in your source files:
-
-```css
-/* region: button_styles */
-.btn {
-  padding: 0.5rem 1rem;
-  background: #3b82f6;
-}
-/* endregion: button_styles */
-```
-
-```sql
--- region: create_table
-CREATE TABLE users (
-  id   SERIAL PRIMARY KEY,
-  name TEXT NOT NULL
-);
--- endregion: create_table
-```
-
-```html
-<!-- region: nav_bar -->
-<nav class="navbar">
-  <a href="/">Home</a>
-  <a href="/docs">Docs</a>
-</nav>
-<!-- endregion: nav_bar -->
-```
-
 ### Custom markers
 
 For any other comment style, define your own `{start, end}` regex pair. Group 1 must capture the region name:
@@ -204,8 +224,6 @@ These patterns are removed from injected code by default:
 | `go` | `if err != nil { t.Fatal` | Go |
 | `markers` | Lines ending with `// test-only` or `# test-only` | Any |
 
-The `assert` and `expect()` patterns match lines starting with these keywords. If your library uses these as API calls (not test assertions), pass a custom `strip` list using `PRESET_STRIP` to include only the languages you need.
-
 To keep assertions visible in a specific block, append `?noStrip`:
 
 ````markdown
@@ -215,37 +233,18 @@ To keep assertions visible in a specific block, append `?noStrip`:
 
 ### Customizing strip patterns
 
-The default strips assertions for every supported language. If you only use Python and JS, or need to add your own patterns, use `PRESET_STRIP` to compose exactly what you want:
+Use `PRESET_STRIP` to compose exactly what you need:
 
 ```js
 const codeRegion = require('remark-code-region');
 const { PRESET_STRIP } = codeRegion;
 
 remarkPlugins: [[codeRegion, {
-  // Only strip Python asserts, JS expects, and test-only markers
   strip: [...PRESET_STRIP.python, ...PRESET_STRIP.js, ...PRESET_STRIP.markers],
 }]],
 ```
 
 Available presets: `python`, `rust`, `java`, `js`, `cpp`, `go`, `markers`.
-
-You can also add custom patterns alongside the defaults:
-
-```js
-const codeRegion = require('remark-code-region');
-const { PRESET_STRIP } = codeRegion;
-
-remarkPlugins: [[codeRegion, {
-  // Custom list — defaults plus your own test helpers
-  strip: [
-    ...PRESET_STRIP.python,
-    ...PRESET_STRIP.js,
-    ...PRESET_STRIP.markers,
-    /^\s*check\(/,
-    /^\s*verify\(/,
-  ],
-}]],
-```
 
 Or disable stripping entirely:
 
@@ -253,11 +252,55 @@ Or disable stripping entirely:
 remarkPlugins: [[codeRegion, { strip: false }]],
 ```
 
+## Assertion transmutation
+
+Instead of stripping assertions, **transform** them into readable output comments that show expected values:
+
+```python
+# Test file:
+user = client.create_user(name="Alice", role="admin")
+assert user["name"] == "Alice"
+assert user["role"] == "admin"
+assert user["id"]
+
+# In your docs (with transmutation):
+user = client.create_user(name="Alice", role="admin")
+# user["name"] => "Alice"
+# user["role"] => "admin"
+# user["id"] => (truthy)
+```
+
+Enable transmutation with composable per-language presets:
+
+```js
+const codeRegion = require('remark-code-region');
+const { PRESET_TRANSMUTE } = codeRegion;
+
+remarkPlugins: [[codeRegion, {
+  transmute: [...PRESET_TRANSMUTE.python, ...PRESET_TRANSMUTE.js],
+}]],
+```
+
+Available presets: `python`, `js`, `rust`, `java`, `go`, `cpp`.
+
+Each language transforms assertions into `subject => value` comments using the correct comment prefix (`#` for Python, `//` for JS, etc.):
+
+| Language | Before | After |
+|---|---|---|
+| Python | `assert user["name"] == "Alice"` | `# user["name"] => "Alice"` |
+| JS | `expect(sum(2, 3)).toBe(5);` | `// sum(2, 3) => 5` |
+| Rust | `assert_eq!(rows.len(), 1);` | `// rows.len() => 1` |
+| Java | `assertEquals("Alice", name);` | `// name => "Alice"` |
+| Go | `assert.Equal(t, 3, len(rows))` | `// len(rows) => 3` |
+| C++ | `ASSERT_EQ(x, 1);` | `// x => 1` |
+
+Inequality and negation are kept natural: `assert x != 0` becomes `# x != 0`.
+
+Transmutation is opt-in and runs before strip. Transmuted lines become comments and skip stripping. Unmatched lines fall through to strip as usual. Use `?noTransmute` to disable per block.
+
 ## Auto-dedent
 
-Extracted regions are automatically dedented. Common leading whitespace is removed so that code nested inside test functions or classes renders flush-left in your docs. No option needed -- this is always on.
-
-For example, code indented inside a test function:
+Extracted regions are automatically dedented. Common leading whitespace is removed so that code nested inside test functions or classes renders flush-left in your docs.
 
 ```python
 def test_create_user():
@@ -274,14 +317,50 @@ from myapp import client
 user = client.create_user(name="Alice")
 ```
 
+Dedent is part of the configurable `clean` pipeline. To disable it, use `clean: ['collapse', 'trim']` (omitting `'dedent'`).
+
+## Clean pipeline
+
+The `clean` option controls the whitespace processing pipeline. Same API shape as `strip`: `undefined` uses defaults, `false` disables all, `string[]` for a custom list.
+
+Available steps (run in array order):
+
+| Step | What it does |
+|---|---|
+| `'dedent'` | Remove common leading whitespace |
+| `'collapse'` | Collapse 3+ consecutive blank lines to 2 |
+| `'trim'` | Trim leading and trailing whitespace |
+| `'trimEnd'` | Trim trailing whitespace only |
+
+```js
+const codeRegion = require('remark-code-region');
+const { PRESET_CLEAN } = codeRegion;
+
+// Default: ['dedent', 'collapse', 'trim']
+remarkPlugins: [[codeRegion, { clean: [...PRESET_CLEAN.default] }]],
+
+// remark-code-import compat: only strip trailing whitespace
+remarkPlugins: [[codeRegion, { clean: [...PRESET_CLEAN.compat] }]],
+
+// Custom: dedent and trim, but keep blank line runs intact
+remarkPlugins: [[codeRegion, { clean: ['dedent', 'trim'] }]],
+
+// Disable all cleaning
+remarkPlugins: [[codeRegion, { clean: false }]],
+```
+
 ## Options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `rootDir` | `string` | `process.cwd()` | Base directory for resolving reference paths. |
+| `rootDir` | `string` | `process.cwd()` | Base directory for resolving `reference=` paths. |
 | `allowOutsideRoot` | `boolean` | `false` | Allow references to files outside `rootDir`. Disabled by default as a security boundary. |
 | `regionMarkers` | `{start, end}[]` | `DEFAULT_REGION_MARKERS` | Region marker pairs. Each `start`/`end` is a RegExp where group 1 captures the region name. |
-| `strip` | `RegExp[]` \| `false` | `undefined` (defaults) | Patterns to strip from injected code. `undefined` uses the built-in defaults. `false` disables stripping. `RegExp[]` replaces the defaults with your custom list. |
+| `strip` | `RegExp[]` \| `false` | `undefined` (defaults) | Patterns to strip from injected code. `undefined` uses built-in defaults. `false` disables. `RegExp[]` replaces defaults. |
+| `transmute` | `TransmuteRule[]` \| `false` | `undefined` (disabled) | Transform assertions into output comments. `undefined`/`false` disables. `TransmuteRule[]` enables with those rules. |
+| `clean` | `string[]` \| `false` | `['dedent', 'collapse', 'trim']` | Whitespace cleaning steps. `false` disables. `string[]` for custom list. |
+| `regionSeparator` | `string` | `'\n\n'` | String inserted between regions in multi-region concatenation. |
+| `preserveFileMeta` | `boolean` | `false` | Keep `file=` in meta after processing (matches remark-code-import behavior). |
 
 **Exports** (for composing custom configurations):
 
@@ -291,16 +370,24 @@ user = client.create_user(name="Alice")
 | `PRESET_MARKERS` | Additional markers: `.css`, `.html`, `.sql` |
 | `PRESET_STRIP` | Strip patterns by language: `.python`, `.rust`, `.java`, `.js`, `.cpp`, `.go`, `.markers` |
 | `DEFAULT_STRIP_PATTERNS` | All built-in strip patterns (union of all `PRESET_STRIP` groups) |
+| `PRESET_TRANSMUTE` | Transmute rules by language: `.python`, `.js`, `.rust`, `.java`, `.go`, `.cpp` |
+| `DEFAULT_TRANSMUTE_RULES` | All transmute rules combined |
+| `PRESET_CLEAN` | Clean step presets: `.default`, `.compat` |
+| `DEFAULT_CLEAN` | Default clean steps (`['dedent', 'collapse', 'trim']`) |
+| `COMMENT_PREFIX` | Language tag to comment prefix map (70+ languages) |
 
 ```js
+const codeRegion = require('remark-code-region');
+
 remarkPlugins: [[codeRegion, {
   rootDir: __dirname,
   regionMarkers: [
     ...codeRegion.DEFAULT_REGION_MARKERS,
     codeRegion.PRESET_MARKERS.css,
-    codeRegion.PRESET_MARKERS.sql,
   ],
   strip: [...codeRegion.PRESET_STRIP.python, ...codeRegion.PRESET_STRIP.js],
+  transmute: [...codeRegion.PRESET_TRANSMUTE.python],
+  clean: ['dedent', 'trim'],
 }]],
 ```
 
@@ -322,7 +409,7 @@ This is intentional. Silent stale docs are worse than a build error.
 
 ## MDX compatibility
 
-Works inside MDX components (`<Tabs>`, admonitions) -- the plugin runs at the remark AST level, before MDX processing. Any code fence with a `reference` attribute will be resolved, regardless of where it sits in the markdown tree.
+Works inside MDX components (`<Tabs>`, admonitions) -- the plugin runs at the remark AST level, before MDX processing. Any code fence with a `reference` or `file=` attribute is resolved, regardless of where it sits in the markdown tree.
 
 ## Framework support
 
@@ -369,23 +456,45 @@ const result = await remark()
   .process(markdown);
 ```
 
-VitePress uses markdown-it (not remark) and is not compatible.
+> **Note:** VitePress uses markdown-it (not remark) and is not compatible.
 
-## Why not remark-code-import?
+## Migrating from remark-code-import
 
-[remark-code-import](https://github.com/kevin940726/remark-code-import) includes code from files using line ranges (`#L3-L6`). It's good for static inclusion, but:
+remark-code-region is a drop-in replacement. All `file=` syntax works unchanged:
+
+```diff
+- const remarkCodeImport = require('remark-code-import');
++ const remarkCodeImport = require('remark-code-region');
+```
+
+remark-code-import dropped `require()` support in v1.0.0. If your Docusaurus config uses `require()`, you're stuck on an old version. remark-code-region supports both `require()` and `import`.
 
 | Feature | remark-code-import | remark-code-region |
 |---|---|---|
-| Include from file | `file=./path.js#L3-L6` | `reference="path.py#region_name"` |
+| Include from file | `file=./path.js#L3-L6` | `reference="path.py#region_name"` or `file=` |
 | **Named regions** | No | Yes -- stable across edits |
+| **Line ranges** | Yes | Yes (via `file=` syntax) |
+| **Multi-region** | No | Yes (`#imports,create_user`) |
 | **Strip test lines** | No | Auto-strips asserts, expects, test-only markers |
-| **Auto-dedent** | Yes | Yes |
-| **Security boundary** | Yes | Yes (`allowOutsideRoot` defaults to false) |
+| **Transmute assertions** | No | Transforms assertions into `=> value` comments |
+| **Auto-dedent** | Opt-in | On by default (configurable) |
+| **Composable clean pipeline** | No | `PRESET_CLEAN.default` / `.compat` / custom |
+| **Security boundary** | `allowImportingFromOutside` | `allowOutsideRoot` (default: false) |
+| **CJS `require()` support** | Dropped in v1.0 | Yes |
 | Fail on missing file | Yes | Yes |
-| Line ranges | Yes | No (regions don't shift when code is edited) |
 
-Both plugins fail on missing files. The key difference is **how you target code**. Line ranges (`#L3-L6`) shift every time you add or remove a line above them. Named regions are anchored by markers in the source -- edit freely above or below, the region stays correct. And auto-stripping test assertions is what makes "code lives in test files" practical -- without it, you'd need separate display-only copies.
+For exact byte-identical output during migration:
+
+```js
+const codeRegion = require('remark-code-region');
+const { PRESET_CLEAN } = codeRegion;
+
+remarkPlugins: [[codeRegion, {
+  clean: [...PRESET_CLEAN.compat],
+  preserveFileMeta: true,
+  strip: false,
+}]],
+```
 
 ## License
 

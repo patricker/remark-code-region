@@ -48,6 +48,7 @@ const ROOT_DIR_PREFIX = '<rootDir>/';
  * @property {boolean} [allowOutsideRoot=false] - Allow references outside rootDir. Default: false (security boundary).
  * @property {RegionMarker[]} [regionMarkers] - Region marker pairs. Defaults cover # and // comments.
  * @property {RegExp[]|false} [strip] - Patterns to strip. false=disable, undefined=defaults, RegExp[]=custom list.
+ * @property {Array<{match: RegExp, template: string}>|false} [transmute] - Transmute rules. false/undefined=disabled, array=use rules. Transforms assertions into output comments.
  * @property {string[]|false} [clean] - Cleaning steps. false=disable, undefined=defaults, string[]=custom list. Steps: 'dedent', 'collapse', 'trim', 'trimEnd'.
  * @property {string} [regionSeparator='\n\n'] - String inserted between concatenated regions in multi-region references.
  * @property {boolean} [preserveFileMeta=false] - Keep file= in meta after processing (matches remark-code-import behavior). Default: false (strip it).
@@ -65,6 +66,7 @@ export default function remarkCodeRegion(options = {}) {
     allowOutsideRoot = false,
     regionMarkers = DEFAULT_REGION_MARKERS,
     strip,
+    transmute,
     clean,
     regionSeparator = '\n\n',
     preserveFileMeta = false,
@@ -77,6 +79,9 @@ export default function remarkCodeRegion(options = {}) {
       : Array.isArray(strip)
         ? strip
         : DEFAULT_STRIP_PATTERNS;
+
+  // Resolve transmute rules: undefined/false=none, array=use it
+  const transmuteRules = Array.isArray(transmute) ? transmute : [];
 
   // Resolve clean steps: false=none, array=use it, undefined=defaults
   const cleanSteps =
@@ -127,6 +132,7 @@ export default function remarkCodeRegion(options = {}) {
       fragmentStr = qIndex >= 0 ? fragmentStr.slice(0, qIndex) : fragmentStr;
 
       const blockNoStrip = flags.includes('noStrip');
+      const blockNoTransmute = flags.includes('noTransmute');
 
       // Split fragments on commas, trim whitespace, drop empties
       const fragments = fragmentStr
@@ -189,10 +195,13 @@ export default function remarkCodeRegion(options = {}) {
         throw e;
       }
 
-      // Clean: strip asserts + whitespace pipeline
+      // Clean: transmute + strip asserts + whitespace pipeline
       code = cleanCode(code, {
         noStrip: blockNoStrip || strip === false,
+        noTransmute: blockNoTransmute || !transmuteRules.length,
         patterns: stripPatterns,
+        transmuteRules,
+        lang: node.lang || '',
         clean: cleanSteps,
       });
 
@@ -214,10 +223,13 @@ export default function remarkCodeRegion(options = {}) {
 
 // Re-export presets for user composition
 export {
+  COMMENT_PREFIX,
   DEFAULT_CLEAN,
   DEFAULT_REGION_MARKERS,
   DEFAULT_STRIP_PATTERNS,
+  DEFAULT_TRANSMUTE_RULES,
   PRESET_CLEAN,
   PRESET_MARKERS,
   PRESET_STRIP,
+  PRESET_TRANSMUTE,
 } from './lib/patterns.mjs';

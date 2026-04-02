@@ -2,7 +2,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { remark } from 'remark';
 import { describe, expect, it } from 'vitest';
-import remarkCodeRegion, { PRESET_CLEAN, PRESET_STRIP } from '../index.mjs';
+import remarkCodeRegion, {
+  PRESET_CLEAN,
+  PRESET_STRIP,
+  PRESET_TRANSMUTE,
+} from '../index.mjs';
 import { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from '../lib/patterns.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -676,5 +680,105 @@ describe('remarkCodeRegion — preserveFileMeta', () => {
     const output = processWithPath(input, mdPath, { preserveFileMeta: true });
     // Default clean still dedents
     expect(output).toMatch(/^from myapp/m);
+  });
+});
+
+// ─── transmute integration tests ───────────────────────────────────────
+
+describe('remarkCodeRegion — transmute', () => {
+  it('transmutes Python assertions into output comments', () => {
+    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    // assert result == 4 → # result => 4
+    expect(output).toContain('# result => 4');
+    // assert type(result) == int → # type(result) => int
+    expect(output).toContain('# type(result) => int');
+    // Non-assert lines kept
+    expect(output).toContain('result = 2 + 2');
+    expect(output).toContain('print(result)');
+  });
+
+  it('transmutes JS assertions into output comments', () => {
+    const input = '```js reference="snippets/example.js#with_expects"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.js],
+    });
+    // expect(sum(2, 3)).toBe(5) → // sum(2, 3) => 5
+    expect(output).toContain('// sum(2, 3) => 5');
+    // Non-assert lines kept
+    expect(output).toContain('const sum = (a, b) => a + b;');
+  });
+
+  it('?noTransmute disables transmutation per block', () => {
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noTransmute"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    // Transmute disabled, falls through to strip
+    expect(output).not.toContain('=>');
+    expect(output).not.toContain('assert');
+    expect(output).toContain('result = 2 + 2');
+  });
+
+  it('transmute + strip coexist: transmuted lines skip strip', () => {
+    const input = '```python reference="snippets/example.py#with_asserts"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+      // strip defaults are active — test-only markers would be stripped
+    });
+    // Assertions are transmuted (not stripped)
+    expect(output).toContain('# result => 4');
+    // The # test-only comment on the assert line is consumed by the transmute regex
+    expect(output).not.toContain('test-only');
+  });
+
+  it('$COMMENT resolves correctly for js vs python', () => {
+    // Python uses #
+    const pyInput =
+      '```python reference="snippets/example.py#with_asserts"\n```';
+    const pyOutput = process(pyInput, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    expect(pyOutput).toMatch(/^# result => 4/m);
+
+    // JS uses //
+    const jsInput = '```js reference="snippets/example.js#with_expects"\n```';
+    const jsOutput = process(jsInput, {
+      transmute: [...PRESET_TRANSMUTE.js],
+    });
+    expect(jsOutput).toMatch(/^\/\/ sum\(2, 3\) => 5/m);
+  });
+
+  it('works with multi-region concatenation', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    // hello region untouched (no assertions)
+    expect(output).toContain('name = "World"');
+    // with_asserts region transmuted
+    expect(output).toContain('# result => 4');
+  });
+
+  it('works with file= syntax', () => {
+    const input = '```python file=./snippets/example.py#with_asserts\n```';
+    const output = processWithPath(input, mdPath, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    expect(output).toContain('# result => 4');
+  });
+
+  it('?noTransmute&noStrip keeps assertions unchanged', () => {
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noTransmute&noStrip"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    expect(output).toContain('assert result == 4');
+    expect(output).not.toContain('=>');
   });
 });
