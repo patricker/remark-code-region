@@ -14,11 +14,10 @@
   "files": [
     "index.mjs",
     "index.cjs",
-    "index.build.cjs",
     "lib/"
   ],
   "scripts": {
-    "build": "esbuild index.mjs --bundle --platform=node --format=cjs --outfile=index.build.cjs --packages=external",
+    "build": "esbuild index.mjs --bundle --platform=node --format=cjs --outfile=index.cjs --packages=external --footer:js=\";(function(){var m=module.exports;var fn=m.default;Object.assign(fn,m);delete fn.default;fn.default=fn;module.exports=fn;})()\"",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
