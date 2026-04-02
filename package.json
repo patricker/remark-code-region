@@ -1,6 +1,6 @@
 {
   "name": "remark-code-region",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Every code block in your docs is extracted from a passing test. Pull tested code from your test suite into Docusaurus, Astro, or any remark-powered docs.",
   "type": "module",
   "main": "./index.cjs",
