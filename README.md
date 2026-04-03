@@ -298,6 +298,86 @@ Inequality and negation are kept natural: `assert x != 0` becomes `# x != 0`.
 
 Transmutation is opt-in and runs before strip. Transmuted lines become comments and skip stripping. Unmatched lines fall through to strip as usual. Use `?noTransmute` to disable per block.
 
+## Diff between two regions
+
+Show a highlighted diff between two tested code states -- for migration guides, changelogs, and "what changed in v2" docs.
+
+````markdown
+```python diff reference="tests/test_api.py#v1_handler" diff-reference="#v2_handler"
+```
+````
+
+The primary `reference=` is the "before", `diff-reference=` is the "after". Same-file shorthand (`#v2_handler`) inherits the file from the primary. Cross-file diffs work too.
+
+Three output modes (set globally via `diffFormat` option or per-block with `?format=`):
+
+**`unified` (default)** -- standard diff format, `lang` set to `"diff"`:
+
+```diff
+ def handler(request):
+-    return Response(request.body)
++    validate(request)
++    return Response(request.body, status=200)
+```
+
+**`inline-annotations`** -- Shiki `[!code ++]` / `[!code --]` markers, original language preserved:
+
+```python
+    return Response(request.body) // [!code --]
+    validate(request) // [!code ++]
+    return Response(request.body, status=200) // [!code ++]
+```
+
+**`side-by-side`** -- emits two sibling code nodes with `data-diff-role="before"` / `"after"` for custom component rendering.
+
+Both sides go through the full cleaning pipeline (strip, transmute, dedent) independently before diffing.
+
+```js
+remarkPlugins: [[codeRegion, { diffFormat: 'inline-annotations' }]],
+```
+
+Per-block override:
+
+````markdown
+```python reference="file.py#v1?format=inline-annotations" diff-reference="#v2"
+```
+````
+
+The `diff-file=` syntax works alongside `file=` for remark-code-import compatible paths.
+
+## Step-by-step tutorial diffs
+
+For tutorials where each step builds on the previous, use `diff-step` to show the current step's complete code with highlights on what changed:
+
+````markdown
+First, create the basic app:
+
+```python reference="tests/tutorial.py#step1"
+```
+
+Now add configuration:
+
+```python reference="tests/tutorial.py#step2" diff-step="step1"
+```
+
+Finally, add authentication:
+
+```python reference="tests/tutorial.py#step3" diff-step="step2"
+```
+````
+
+**Step 1** renders as plain code. **Step 2** renders with `// [!code ++]` on lines added since step 1. **Step 3** shows what changed since step 2. Each block is a standalone code fence with its own prose context.
+
+The reader sees complete, copyable code at every step -- with green/red highlights showing exactly what's new. Every step is a passing test.
+
+`diff-step` defaults to `inline-annotations` (Shiki highlighting). Override with `?format=unified` for +/- diff output.
+
+| | `diff-reference` | `diff-step` |
+|---|---|---|
+| Use case | Migration guide (before/after) | Tutorial (step-by-step) |
+| Output | Diff only | Full current code with change annotations |
+| Default format | `unified` (+/- prefixes) | `inline-annotations` (Shiki highlights) |
+
 ## Auto-dedent
 
 Extracted regions are automatically dedented. Common leading whitespace is removed so that code nested inside test functions or classes renders flush-left in your docs.
@@ -361,6 +441,7 @@ remarkPlugins: [[codeRegion, { clean: false }]],
 | `clean` | `string[]` \| `false` | `['dedent', 'collapse', 'trim']` | Whitespace cleaning steps. `false` disables. `string[]` for custom list. |
 | `regionSeparator` | `string` | `'\n\n'` | String inserted between regions in multi-region concatenation. |
 | `preserveFileMeta` | `boolean` | `false` | Keep `file=` in meta after processing (matches remark-code-import behavior). |
+| `diffFormat` | `string` | `'unified'` | Output format for diff blocks: `'unified'`, `'inline-annotations'`, or `'side-by-side'`. |
 
 **Exports** (for composing custom configurations):
 
@@ -477,6 +558,8 @@ remark-code-import dropped `require()` support in v1.0.0. If your Docusaurus con
 | **Multi-region** | No | Yes (`#imports,create_user`) |
 | **Strip test lines** | No | Auto-strips asserts, expects, test-only markers |
 | **Transmute assertions** | No | Transforms assertions into `=> value` comments |
+| **Diff two regions** | No | `diff-reference=` with unified, inline-annotation, or side-by-side output |
+| **Tutorial step diffs** | No | `diff-step=` shows current code with change highlights from previous step |
 | **Auto-dedent** | Opt-in | On by default (configurable) |
 | **Composable clean pipeline** | No | `PRESET_CLEAN.default` / `.compat` / custom |
 | **Security boundary** | `allowImportingFromOutside` | `allowOutsideRoot` (default: false) |

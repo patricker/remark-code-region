@@ -8,6 +8,7 @@ import remarkCodeRegion, {
   PRESET_TRANSMUTE,
 } from '../index.mjs';
 import { DEFAULT_REGION_MARKERS, PRESET_MARKERS } from '../lib/patterns.mjs';
+import { deriveTabLabel } from '../lib/tab-groups.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures');
@@ -29,6 +30,15 @@ function processWithPath(markdown, mdPath, options = {}) {
     .processSync({ value: markdown, path: mdPath })
     .toString()
     .trim();
+}
+
+/** Process and return the mdast tree (for AST-level assertions). */
+function processToTree(markdown, options = {}) {
+  const opts = { rootDir: fixturesDir, ...options };
+  const processor = remark().use(remarkCodeRegion, opts);
+  const tree = processor.parse(markdown);
+  processor.runSync(tree);
+  return tree;
 }
 
 // Virtual markdown path inside fixturesDir for file= tests
@@ -780,5 +790,637 @@ describe('remarkCodeRegion — transmute', () => {
     });
     expect(output).toContain('assert result == 4');
     expect(output).not.toContain('=>');
+  });
+});
+
+// ─── diff tests ────────────────────────────────────────────────────────
+
+describe('remarkCodeRegion — diff', () => {
+  it('unified: produces +/- diff, sets lang to "diff"', () => {
+    const input =
+      '```python diff reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input);
+    expect(output).toContain('```diff');
+    expect(output).toContain('-    return Response(request.body)');
+    expect(output).toContain('+    validate(request)');
+    expect(output).toContain('+    return Response(request.body, status=200)');
+  });
+
+  it('inline-annotations: adds [!code ++]/[!code --], preserves lang', () => {
+    const input =
+      '```python diff reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input, { diffFormat: 'inline-annotations' });
+    expect(output).toContain('```python');
+    expect(output).toContain('// [!code --]');
+    expect(output).toContain('// [!code ++]');
+  });
+
+  it('side-by-side: emits two sibling code nodes', () => {
+    const input =
+      '```python diff reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input, { diffFormat: 'side-by-side' });
+    // Should contain two code blocks
+    expect(output).toContain('data-diff-role="before"');
+    expect(output).toContain('data-diff-role="after"');
+    expect(output).toContain('return Response(request.body)');
+    expect(output).toContain('validate(request)');
+  });
+
+  it('same-file shorthand: diff-reference="#v2" inherits file', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input);
+    // Should work without repeating the file path
+    expect(output).toContain('-    return Response(request.body)');
+    expect(output).toContain('+    validate(request)');
+  });
+
+  it('works with diff-file= syntax', () => {
+    const input =
+      '```python file=./snippets/diff-example.py#v1_handler diff-file=#v2_handler\n```';
+    const output = processWithPath(input, mdPath);
+    expect(output).toContain('-    return Response(request.body)');
+    expect(output).toContain('+    validate(request)');
+  });
+
+  it('per-block ?format= overrides global diffFormat', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler?format=inline-annotations" diff-reference="#v2_handler"\n```';
+    const output = process(input); // global default is 'unified'
+    expect(output).toContain('```python');
+    expect(output).toContain('// [!code ++]');
+    expect(output).not.toContain('```diff');
+  });
+
+  it('both sides go through cleanCode — asserts stripped from diff output', () => {
+    // Fixture now has assert lines in both regions
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input);
+    // Assert lines should be stripped before diffing
+    expect(output).not.toContain('assert');
+    // But real code should be present
+    expect(output).toContain('Response');
+  });
+
+  it('strips diff-reference, diff-file, diff keyword from meta', () => {
+    const input =
+      '```python title="migration" diff reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input);
+    expect(output).not.toContain('diff-reference=');
+    expect(output).toContain('title="migration"');
+  });
+
+  it('errors when diff-reference without primary reference', () => {
+    const input =
+      '```python diff-reference="snippets/diff-example.py#v2_handler"\n```';
+    expect(() => process(input)).toThrow(
+      'requires a primary reference= or file=',
+    );
+  });
+
+  it('non-diff blocks still work (backward compatible)', () => {
+    const input = '```python reference="snippets/example.py#hello"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).not.toContain('diff');
+  });
+
+  it('cross-file diff (different files for before and after)', () => {
+    // v1 from diff-example.py, v2 from example.py (different file)
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="snippets/example.py#hello"\n```';
+    const output = process(input);
+    // Should produce a diff between the two different regions
+    expect(output).toContain('```diff');
+    expect(output).toContain('-');
+    expect(output).toContain('+');
+  });
+
+  it('diff with transmute — both sides transmuted before diffing', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input, {
+      transmute: [...PRESET_TRANSMUTE.python],
+    });
+    // Asserts should be transmuted to comments, then diffed
+    // The transmuted comments (# request.body => (truthy)) should appear
+    expect(output).toContain('request.body');
+    expect(output).not.toMatch(/^\s*assert/m);
+  });
+
+  it('diff with identical regions produces no +/- lines', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v1_handler"\n```';
+    const output = process(input);
+    expect(output).toContain('```diff');
+    // All lines should be context (space prefix), no + or -
+    const codeContent = output.replace(/```diff\n/, '').replace(/\n```/, '');
+    for (const line of codeContent.split('\n')) {
+      if (line.trim()) {
+        expect(line[0]).toBe(' ');
+      }
+    }
+  });
+
+  it('diff + multi-region primary', () => {
+    const input =
+      '```python reference="snippets/example.py#hello,with_asserts" diff-reference="snippets/example.py#multiline"\n```';
+    const output = process(input);
+    expect(output).toContain('```diff');
+  });
+});
+
+// ─── diff-step tests ───────────────────────────────────────────────────
+
+describe('remarkCodeRegion — diff-step', () => {
+  it('step1 with no diff-step renders as plain code', () => {
+    const input = '```python reference="snippets/tutorial.py#step1"\n```';
+    const output = process(input);
+    expect(output).toContain('app = App()');
+    expect(output).toContain('app.start()');
+    expect(output).not.toContain('[!code');
+  });
+
+  it('step2 with diff-step="step1" shows [!code ++] on new lines', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step2" diff-step="step1"\n```';
+    const output = process(input);
+    // New line in step2
+    expect(output).toContain('app.configure(port=8080) // [!code ++]');
+    // Unchanged lines should not have annotations
+    expect(output).toMatch(/^from myapp import App$/m);
+    // Preserves original language
+    expect(output).toContain('```python');
+    expect(output).not.toContain('```diff');
+  });
+
+  it('step3 with diff-step="step2" shows changes since step2', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step3" diff-step="step2"\n```';
+    const output = process(input);
+    // New lines in step3
+    expect(output).toContain('from myapp.middleware import auth // [!code ++]');
+    expect(output).toContain('app.add_middleware(auth) // [!code ++]');
+    // Lines that existed in step2 should not be annotated
+    expect(output).toMatch(/^app\.configure\(port=8080\)$/m);
+  });
+
+  it('preserves original language (not "diff")', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step2" diff-step="step1"\n```';
+    const output = process(input);
+    expect(output).toContain('```python');
+    expect(output).not.toContain('```diff');
+  });
+
+  it('diff-step inherits file from primary reference', () => {
+    // diff-step="step1" uses same file as reference=
+    const input =
+      '```python reference="snippets/tutorial.py#step2" diff-step="step1"\n```';
+    const output = process(input);
+    expect(output).toContain('app.configure');
+  });
+
+  it('diff-step with ?format=unified produces +/- output', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step2?format=unified" diff-step="step1"\n```';
+    const output = process(input);
+    expect(output).toContain('```diff');
+    expect(output).toContain('+app.configure(port=8080)');
+  });
+
+  it('strips diff-step from meta', () => {
+    const input =
+      '```python title="tutorial" reference="snippets/tutorial.py#step2" diff-step="step1"\n```';
+    const output = process(input);
+    expect(output).not.toContain('diff-step');
+    expect(output).toContain('title="tutorial"');
+  });
+
+  it('works with file= syntax', () => {
+    const input =
+      '```python file=./snippets/tutorial.py#step2 diff-step="step1"\n```';
+    const output = processWithPath(input, mdPath);
+    expect(output).toContain('app.configure(port=8080) // [!code ++]');
+  });
+
+  it('both sides go through cleanCode', () => {
+    // tutorial.py has no asserts, but cleanCode still runs (dedent, trim)
+    const input =
+      '```python reference="snippets/tutorial.py#step2" diff-step="step1"\n```';
+    const output = process(input);
+    // Code should be dedented and trimmed
+    expect(output).toMatch(/^from myapp/m);
+  });
+
+  it('errors when diff-step without primary reference', () => {
+    const input = '```python diff-step="step1"\n```';
+    expect(() => process(input)).toThrow(
+      'requires a primary reference= or file=',
+    );
+  });
+});
+
+describe('remarkCodeRegion — tab groups', () => {
+  // -- Grouping --
+
+  it('two consecutive tab fences → one tabGroup with 2 children', () => {
+    const input = [
+      '```python tab="Python"',
+      'print("hi")',
+      '```',
+      '',
+      '```javascript tab="Node.js"',
+      'console.log("hi")',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+  });
+
+  it('three consecutive tab fences → one tabGroup with 3 children', () => {
+    const input = [
+      '```python tab="Python"',
+      'x = 1',
+      '```',
+      '',
+      '```javascript tab="JS"',
+      'let x = 1',
+      '```',
+      '',
+      '```go tab="Go"',
+      'x := 1',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(3);
+  });
+
+  it('non-tab content between tab fences → separate groups', () => {
+    const input = [
+      '```python tab="Python"',
+      'x = 1',
+      '```',
+      '',
+      'Some paragraph text.',
+      '',
+      '```javascript tab="JS"',
+      'let x = 1',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(2);
+    expect(groups[0].children).toHaveLength(1);
+    expect(groups[1].children).toHaveLength(1);
+  });
+
+  it('solo tab fence → single-child tabGroup', () => {
+    const input = '```python tab="Solo"\ncode\n```';
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(1);
+  });
+
+  it('regular fence (no tab) is not wrapped', () => {
+    const input = '```python\ncode\n```';
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(0);
+    expect(tree.children[0].type).toBe('code');
+  });
+
+  it('non-tab code fence between tab fences → separate groups', () => {
+    const input = [
+      '```python tab="A"',
+      'x',
+      '```',
+      '',
+      '```python',
+      'plain code',
+      '```',
+      '',
+      '```python tab="B"',
+      'y',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(2);
+    // The plain code fence should be between them, not wrapped
+    const plainCode = tree.children.find(
+      (n) => n.type === 'code' && n.value === 'plain code',
+    );
+    expect(plainCode).toBeTruthy();
+  });
+
+  it('blank lines between tab fences → still grouped', () => {
+    const input = '```python tab="A"\nx\n```\n\n\n\n```python tab="B"\ny\n```';
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+  });
+
+  it('HTML comment between tab fences → separate groups', () => {
+    const input = [
+      '```python tab="A"',
+      'x',
+      '```',
+      '',
+      '<!-- -->',
+      '',
+      '```python tab="B"',
+      'y',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(2);
+  });
+
+  it('same tab-group on separate visual groups → both get sync key', () => {
+    const input = [
+      '```python tab="Python" tab-group="lang"',
+      'pip install x',
+      '```',
+      '',
+      'Install instructions above. Usage below.',
+      '',
+      '```python tab="Python" tab-group="lang"',
+      'import x',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(2);
+    expect(groups[0].data.hProperties['data-tab-group']).toBe('lang');
+    expect(groups[1].data.hProperties['data-tab-group']).toBe('lang');
+  });
+
+  it('tab fences in a blockquote → grouped', () => {
+    const input = [
+      '> ```python tab="A"',
+      '> x',
+      '> ```',
+      '>',
+      '> ```python tab="B"',
+      '> y',
+      '> ```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const bq = tree.children.find((n) => n.type === 'blockquote');
+    expect(bq).toBeTruthy();
+    const groups = bq.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+  });
+
+  // -- Labels --
+
+  it('tab="Custom Label" uses explicit label', () => {
+    const input = '```python tab="My Custom Label"\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].data.tabLabel).toBe('My Custom Label');
+  });
+
+  it('bare tab derives label from lang (capitalized)', () => {
+    const input = '```python tab\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].data.tabLabel).toBe('Python');
+  });
+
+  it('deriveTabLabel returns "Code" when lang is falsy', () => {
+    // In markdown, there's no way to have meta without a lang (remark treats
+    // the first word as lang). So we test deriveTabLabel directly.
+    expect(deriveTabLabel(null)).toBe('Code');
+    expect(deriveTabLabel('')).toBe('Code');
+    expect(deriveTabLabel(undefined)).toBe('Code');
+  });
+
+  it('tab="" derives label from lang', () => {
+    const input = '```javascript tab=""\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].data.tabLabel).toBe('Javascript');
+  });
+
+  // -- Meta cleanup --
+
+  it('tab="..." stripped from final meta', () => {
+    const input = '```python tab="Python" title="example"\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].meta).toBe('title="example"');
+  });
+
+  it('bare tab stripped from final meta', () => {
+    const input = '```python tab title="example"\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].meta).toBe('title="example"');
+  });
+
+  it('tab-group="id" stripped; other attrs preserved', () => {
+    const input = '```python tab="Py" tab-group="lang" title="demo"\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].meta).toBe('title="demo"');
+  });
+
+  it('meta becomes null when only tab attrs present', () => {
+    const input = '```python tab="Python"\ncode\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].meta).toBeNull();
+  });
+
+  // -- AST structure --
+
+  it('tabGroup has correct type, hName, and hProperties.class', () => {
+    const input = '```python tab="A"\nx\n```\n\n```python tab="B"\ny\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.type).toBe('tabGroup');
+    expect(group.data.hName).toBe('div');
+    expect(group.data.hProperties.class).toBe('code-tabs');
+  });
+
+  it('custom tabGroupClass option', () => {
+    const input = '```python tab="A"\nx\n```\n\n```python tab="B"\ny\n```';
+    const tree = processToTree(input, { tabGroupClass: 'my-tabs' });
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.data.hProperties.class).toBe('my-tabs');
+  });
+
+  it('data-tab-group present when tab-group= specified', () => {
+    const input =
+      '```python tab="A" tab-group="lang"\nx\n```\n\n```python tab="B"\ny\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.data.hProperties['data-tab-group']).toBe('lang');
+  });
+
+  it('each child has data.tabLabel', () => {
+    const input =
+      '```python tab="Python"\nx\n```\n\n```javascript tab="Node.js"\ny\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].data.tabLabel).toBe('Python');
+    expect(group.children[1].data.tabLabel).toBe('Node.js');
+  });
+
+  it('each child has data.hProperties["data-tab"]', () => {
+    const input =
+      '```python tab="Python"\nx\n```\n\n```javascript tab="JS"\ny\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].data.hProperties['data-tab']).toBe('Python');
+    expect(group.children[1].data.hProperties['data-tab']).toBe('JS');
+  });
+
+  it('children retain lang and value', () => {
+    const input =
+      '```python tab="Py"\nprint("hi")\n```\n\n```javascript tab="JS"\nconsole.log("hi")\n```';
+    const tree = processToTree(input);
+    const group = tree.children.find((n) => n.type === 'tabGroup');
+    expect(group.children[0].lang).toBe('python');
+    expect(group.children[0].value).toBe('print("hi")');
+    expect(group.children[1].lang).toBe('javascript');
+    expect(group.children[1].value).toBe('console.log("hi")');
+  });
+
+  // -- Composition with existing features --
+
+  it('tab= + reference= resolves content AND groups', () => {
+    const input = [
+      '```python tab="Python" reference="snippets/example.py#hello"',
+      '```',
+      '',
+      '```javascript tab="JS" reference="snippets/example.js#fetch_data"',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+    expect(groups[0].children[0].value).toContain('name = "World"');
+    expect(groups[0].children[1].value).toContain('/api/users');
+  });
+
+  it('tab= + file= resolves content AND groups', () => {
+    const input = [
+      '```python tab="Py" file=snippets/example.py#hello',
+      '```',
+      '',
+      '```javascript tab="JS" file=snippets/example.js#fetch_data',
+      '```',
+    ].join('\n');
+    // file= resolves relative to markdown file, so use processWithPath
+    const opts = { rootDir: fixturesDir };
+    const processor = remark().use(remarkCodeRegion, opts);
+    const tree = processor.parse(input);
+    // Attach file info for file= path resolution
+    const vfile = { value: input, path: mdPath };
+    processor.runSync(tree, vfile);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children[0].value).toContain('name = "World"');
+  });
+
+  it('tab= + diff-step= works', () => {
+    const input = [
+      '```python tab="Step 1" reference="snippets/tutorial.py#step1"',
+      '```',
+      '',
+      '```python tab="Step 2" reference="snippets/tutorial.py#step2" diff-step="step1"',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+    // Step 2 should have inline annotations
+    expect(groups[0].children[1].value).toContain('[!code');
+  });
+
+  it('tab= + side-by-side diff → error', () => {
+    const input =
+      '```python tab="Diff" reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    expect(() => process(input, { diffFormat: 'side-by-side' })).toThrow(
+      'tab= cannot be combined with side-by-side diff',
+    );
+  });
+
+  it('inline code tabs (no reference) work', () => {
+    const input = [
+      '```bash tab="npm"',
+      'npm install myapp',
+      '```',
+      '',
+      '```bash tab="yarn"',
+      'yarn add myapp',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children[0].value).toBe('npm install myapp');
+    expect(groups[0].children[1].value).toBe('yarn add myapp');
+  });
+
+  it('mixed inline + reference tabs in one group', () => {
+    const input = [
+      '```python tab="Python" reference="snippets/example.py#hello"',
+      '```',
+      '',
+      '```bash tab="Shell"',
+      'python example.py',
+      '```',
+    ].join('\n');
+    const tree = processToTree(input);
+    const groups = tree.children.filter((n) => n.type === 'tabGroup');
+    expect(groups).toHaveLength(1);
+    expect(groups[0].children).toHaveLength(2);
+    expect(groups[0].children[0].value).toContain('name = "World"');
+    expect(groups[0].children[1].value).toBe('python example.py');
+  });
+
+  // -- Stringify --
+
+  it('process() does not crash on tab groups', () => {
+    const input = [
+      '```python tab="Python"',
+      'print("hi")',
+      '```',
+      '',
+      '```javascript tab="JS"',
+      'console.log("hi")',
+      '```',
+    ].join('\n');
+    expect(() => process(input)).not.toThrow();
+  });
+
+  it('stringify output contains code from all tabs', () => {
+    const input = [
+      '```python tab="Python"',
+      'print("hi")',
+      '```',
+      '',
+      '```javascript tab="JS"',
+      'console.log("hi")',
+      '```',
+    ].join('\n');
+    const output = process(input);
+    expect(output).toContain('print("hi")');
+    expect(output).toContain('console.log("hi")');
   });
 });
