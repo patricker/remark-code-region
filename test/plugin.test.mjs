@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { remark } from 'remark';
@@ -1422,5 +1423,132 @@ describe('remarkCodeRegion — tab groups', () => {
     const output = process(input);
     expect(output).toContain('print("hi")');
     expect(output).toContain('console.log("hi")');
+  });
+});
+
+describe('remarkCodeRegion — bugfixes', () => {
+  it('CRLF file: region extraction works', () => {
+    const input = '```python reference="snippets/crlf-example.py#hello"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).not.toContain('\r');
+  });
+
+  it('CRLF file: line range extraction works', () => {
+    const input = '```python reference="snippets/crlf-example.py#L2-L3"\n```';
+    const output = process(input);
+    expect(output).toContain('name = "World"');
+    expect(output).not.toContain('\r');
+  });
+
+  it('diff-step + ?format=side-by-side → error', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step2?format=side-by-side" diff-step="step1"\n```';
+    expect(() => process(input)).toThrow(
+      'side-by-side format is not supported with diff-step',
+    );
+  });
+
+  it('diff-reference + diff-step on same block → error', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler" diff-step="v1_handler"\n```';
+    expect(() => process(input)).toThrow(
+      'diff-reference/diff-file and diff-step cannot be used on the same code block',
+    );
+  });
+});
+
+describe('remarkCodeRegion — file= escaped spaces', () => {
+  it('resolves file path with backslash-escaped spaces', () => {
+    const input = '```python file=snippets/spaced\\ file.py#greeting\n```';
+    const output = processWithPath(input, mdPath);
+    expect(output).toContain('Hello from a spaced filename!');
+  });
+});
+
+describe('remarkCodeRegion — CJS entry point', () => {
+  it('CJS bundle exports the plugin function and presets', () => {
+    // Use subprocess to test real CJS require() (vitest ESM interop has issues)
+    const script = [
+      "const p = require('./index.cjs');",
+      "if (typeof p !== 'function') throw new Error('default export is not a function: ' + typeof p);",
+      "if (typeof p.PRESET_STRIP !== 'object') throw new Error('PRESET_STRIP missing');",
+      "if (typeof p.PRESET_TRANSMUTE !== 'object') throw new Error('PRESET_TRANSMUTE missing');",
+      "if (typeof p.PRESET_CLEAN !== 'object') throw new Error('PRESET_CLEAN missing');",
+      "if (typeof p.COMMENT_PREFIX !== 'object') throw new Error('COMMENT_PREFIX missing');",
+      "if (typeof p.DEFAULT_STRIP_PATTERNS !== 'object') throw new Error('DEFAULT_STRIP_PATTERNS missing');",
+    ].join('');
+    // Will throw if require() fails or exports are wrong
+    execSync(`node -e "${script}"`, { cwd: path.resolve(__dirname, '..') });
+  });
+});
+
+describe('remarkCodeRegion — cleanDiffMeta', () => {
+  it('strips reference= from meta', () => {
+    const input =
+      '```python reference="snippets/example.py#hello" title="demo"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBe('title="demo"');
+  });
+
+  it('strips file= from meta by default', () => {
+    const input = '```python file=snippets/example.py#hello title="demo"\n```';
+    const opts = { rootDir: fixturesDir };
+    const processor = remark().use(remarkCodeRegion, opts);
+    const tree = processor.parse(input);
+    processor.runSync(tree, { value: input, path: mdPath });
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBe('title="demo"');
+  });
+
+  it('preserves file= when preserveFileMeta is true', () => {
+    const input = '```python file=snippets/example.py#hello title="demo"\n```';
+    const opts = { rootDir: fixturesDir, preserveFileMeta: true };
+    const processor = remark().use(remarkCodeRegion, opts);
+    const tree = processor.parse(input);
+    processor.runSync(tree, { value: input, path: mdPath });
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toContain('file=');
+    expect(code.meta).toContain('title="demo"');
+  });
+
+  it('strips diff-reference= without damaging reference=', () => {
+    const input =
+      '```python reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBeNull();
+  });
+
+  it('strips diff-step= from meta', () => {
+    const input =
+      '```python reference="snippets/tutorial.py#step2" diff-step="step1" title="x"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBe('title="x"');
+  });
+
+  it('strips standalone diff keyword', () => {
+    const input =
+      '```python diff reference="snippets/diff-example.py#v1_handler" diff-reference="#v2_handler"\n```';
+    const output = process(input);
+    // After processing diff, lang becomes "diff" and meta should be clean
+    expect(output).not.toContain('diff-reference');
+  });
+
+  it('returns null when meta becomes empty', () => {
+    const input = '```python reference="snippets/example.py#hello"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBeNull();
+  });
+
+  it('preserves unrelated attributes', () => {
+    const input =
+      '```python reference="snippets/example.py#hello" title="demo" data-foo="bar"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.meta).toBe('title="demo" data-foo="bar"');
   });
 });

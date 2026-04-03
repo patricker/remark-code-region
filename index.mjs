@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { SKIP, visit } from 'unist-util-visit';
 import { formatDiff } from './lib/diff-regions.mjs';
-import { extractLines } from './lib/extract-lines.mjs';
+import { extractLines, LINE_RANGE_RE } from './lib/extract-lines.mjs';
 import { extractRegion } from './lib/extract-region.mjs';
 import {
   DEFAULT_CLEAN,
@@ -27,25 +27,46 @@ import { cleanCode } from './lib/strip-asserts.mjs';
 import { groupTabsInParent, TAB_REGEX } from './lib/tab-groups.mjs';
 
 /** Regex to find reference="..." in code fence meta (not diff-reference). */
-const REF_REGEX = /(?<!-)reference="([^"]+)"/;
+const REF_REGEX = /(?:^|\s)(?<!-)reference="([^"]+)"/;
 
 /** Regex to find file=... (unquoted, backslash-escaped spaces, not diff-file=). */
 const FILE_REGEX = /(?:^|(?<!-)(?<=\s))file=((?:[^\s\\]|\\.)+)/;
 
 /** Regex to find diff-reference="..." in code fence meta. */
-const DIFF_REF_REGEX = /diff-reference="([^"]+)"/;
+const DIFF_REF_REGEX = /(?:^|\s)diff-reference="([^"]+)"/;
 
 /** Regex to find diff-file=... in code fence meta. */
 const DIFF_FILE_REGEX = /(?:^|\s)diff-file=((?:[^\s\\]|\\.)+)/;
 
 /** Regex to find diff-step="..." in code fence meta (tutorial step diffing). */
-const DIFF_STEP_REGEX = /diff-step="([^"]+)"/;
-
-/** Regex to detect line-range fragments like L3, L3-L6, L3- */
-const LINE_RANGE_RE = /^L(\d+)(?:-(?:L?(\d+))?)?$/;
+const DIFF_STEP_REGEX = /(?:^|\s)diff-step="([^"]+)"/;
 
 /** Prefix for rootDir-relative file= paths. */
 const ROOT_DIR_PREFIX = '<rootDir>/';
+
+/**
+ * Parse ?flags from a raw reference value (e.g., "file.py#region?noStrip&format=unified").
+ * @param {string} rawValue
+ * @param {'unified'|'inline-annotations'|'side-by-side'} defaultFormat
+ * @returns {{ flagOverrides: { noStrip: boolean, noTransmute: boolean }, effectiveDiffFormat: string }}
+ */
+function parseFlags(rawValue, defaultFormat) {
+  const hashIndex = rawValue.indexOf('#');
+  const fragStr = hashIndex >= 0 ? rawValue.slice(hashIndex + 1) : null;
+  const qIndex = fragStr ? fragStr.indexOf('?') : -1;
+  const flags = qIndex >= 0 ? fragStr.slice(qIndex + 1).split('&') : [];
+  const formatFlag = flags.find((f) => f.startsWith('format='));
+  return {
+    flagOverrides: {
+      noStrip: flags.includes('noStrip'),
+      noTransmute: flags.includes('noTransmute'),
+    },
+    effectiveDiffFormat: formatFlag
+      ? formatFlag.slice('format='.length)
+      : defaultFormat,
+    formatFlag: formatFlag || null,
+  };
+}
 
 /**
  * @typedef {Object} RegionMarker
@@ -111,8 +132,9 @@ export default function remarkCodeRegion(options = {}) {
    * @param {string} securityBase - Resolved rootDir for security checks
    * @param {object} vfile - The vfile object (for fail())
    * @param {string} lang - Code fence language tag
-   * @param {object} flagOverrides - Per-block flag overrides { noStrip, noTransmute }
-   * @param {string|null} [fallbackAbsPath] - Abs path to use when rawValue has no file portion
+   * @param {object} [opts] - Optional parameters.
+   * @param {object} [opts.flagOverrides] - Per-block flag overrides { noStrip, noTransmute }
+   * @param {string|null} [opts.fallbackAbsPath] - Abs path to use when rawValue has no file portion
    * @returns {{ code: string, absPath: string }}
    */
   function resolveRef(
@@ -122,9 +144,9 @@ export default function remarkCodeRegion(options = {}) {
     securityBase,
     vfile,
     lang,
-    flagOverrides,
-    fallbackAbsPath = null,
+    opts = {},
   ) {
+    const { flagOverrides = {}, fallbackAbsPath = null } = opts;
     let raw = rawValue;
 
     // Unescape backslash-spaces in file= values
@@ -188,7 +210,7 @@ export default function remarkCodeRegion(options = {}) {
     // Read the source file
     let content;
     try {
-      content = fs.readFileSync(absPath, 'utf-8');
+      content = fs.readFileSync(absPath, 'utf-8').replace(/\r\n/g, '\n');
     } catch (e) {
       const msg = `remark-code-region: cannot read file '${filePath || raw}' (resolved to '${absPath}'): ${e.message}`;
       if (vfile?.fail) {
@@ -270,6 +292,17 @@ export default function remarkCodeRegion(options = {}) {
       const hasDiff = !!(diffRefMatch || diffFileMatch);
       const hasDiffStep = !!diffStepMatch;
 
+      // Mutual exclusion: can't combine diff-reference/diff-file with diff-step
+      if (hasDiff && hasDiffStep) {
+        const msg =
+          'remark-code-region: diff-reference/diff-file and diff-step cannot be used on the same code block';
+        if (file?.fail) {
+          file.fail(msg);
+          return;
+        }
+        throw new Error(msg);
+      }
+
       // If no primary reference and no diff attribute, skip
       if (!refMatch && !fileMatch) {
         // Error if diff attr present without primary
@@ -298,25 +331,11 @@ export default function remarkCodeRegion(options = {}) {
         primaryResolveDir = file?.dirname || file?.cwd || process.cwd();
       }
 
-      // Parse primary flags for per-block overrides
-      const primaryHashIndex = primaryRaw.indexOf('#');
-      const primaryFragStr =
-        primaryHashIndex >= 0 ? primaryRaw.slice(primaryHashIndex + 1) : null;
-      const primaryQIndex = primaryFragStr ? primaryFragStr.indexOf('?') : -1;
-      const primaryFlags =
-        primaryQIndex >= 0
-          ? primaryFragStr.slice(primaryQIndex + 1).split('&')
-          : [];
-      const flagOverrides = {
-        noStrip: primaryFlags.includes('noStrip'),
-        noTransmute: primaryFlags.includes('noTransmute'),
-      };
-
-      // Parse ?format= override for diffs
-      const formatFlag = primaryFlags.find((f) => f.startsWith('format='));
-      const effectiveDiffFormat = formatFlag
-        ? formatFlag.slice('format='.length)
-        : diffFormat;
+      // Parse per-block flag overrides and format from primary reference
+      const { flagOverrides, effectiveDiffFormat, formatFlag } = parseFlags(
+        primaryRaw,
+        diffFormat,
+      );
 
       // Extract and clean the primary reference
       const primary = resolveRef(
@@ -326,7 +345,7 @@ export default function remarkCodeRegion(options = {}) {
         resolvedBase,
         file,
         node.lang || '',
-        flagOverrides,
+        { flagOverrides },
       );
 
       if (hasDiff) {
@@ -352,8 +371,7 @@ export default function remarkCodeRegion(options = {}) {
           resolvedBase,
           file,
           node.lang || '',
-          flagOverrides,
-          primary.absPath,
+          { flagOverrides, fallbackAbsPath: primary.absPath },
         );
 
         // Format the diff
@@ -415,8 +433,7 @@ export default function remarkCodeRegion(options = {}) {
           resolvedBase,
           file,
           node.lang || '',
-          flagOverrides,
-          primary.absPath,
+          { flagOverrides, fallbackAbsPath: primary.absPath },
         );
 
         // Default to inline-annotations for diff-step (shows full code with highlights)
@@ -426,6 +443,16 @@ export default function remarkCodeRegion(options = {}) {
             : effectiveDiffFormat;
 
         const result = formatDiff(previousStep.code, primary.code, stepFormat);
+
+        if (result.mode === 'side-by-side') {
+          const msg =
+            'remark-code-region: side-by-side format is not supported with diff-step';
+          if (file?.fail) {
+            file.fail(msg);
+            return;
+          }
+          throw new Error(msg);
+        }
 
         if (result.mode === 'unified') {
           node.value = result.value;

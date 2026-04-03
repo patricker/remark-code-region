@@ -7,6 +7,7 @@
   "module": "./index.mjs",
   "exports": {
     ".": {
+      "types": "./index.d.mts",
       "require": "./index.cjs",
       "import": "./index.mjs"
     }
@@ -14,6 +15,7 @@
   "files": [
     "index.mjs",
     "index.cjs",
+    "index.d.mts",
     "lib/"
   ],
   "scripts": {
@@ -48,6 +50,9 @@
   "homepage": "https://github.com/patricker/remark-code-region#readme",
   "bugs": {
     "url": "https://github.com/patricker/remark-code-region/issues"
+  },
+  "peerDependencies": {
+    "unified": ">=11.0.0"
   },
   "dependencies": {
     "diff": "^8.0.4",

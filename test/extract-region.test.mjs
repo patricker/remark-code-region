@@ -146,4 +146,24 @@ describe('extractRegion with mixed markers', () => {
       'SELECT * FROM t;',
     );
   });
+
+  it('duplicate region names: captures from both occurrences', () => {
+    const content = [
+      '# region: dupe',
+      'first',
+      '# endregion: dupe',
+      '# region: dupe',
+      'second',
+      '# endregion: dupe',
+    ].join('\n');
+    const result = extractRegion(
+      content,
+      'dupe',
+      'test.py',
+      DEFAULT_REGION_MARKERS,
+    );
+    // Both regions' content is captured (re-enters capturing on second start)
+    expect(result).toContain('first');
+    expect(result).toContain('second');
+  });
 });

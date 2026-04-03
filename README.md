@@ -378,6 +378,60 @@ The reader sees complete, copyable code at every step -- with green/red highligh
 | Output | Diff only | Full current code with change annotations |
 | Default format | `unified` (+/- prefixes) | `inline-annotations` (Shiki highlights) |
 
+## Tab groups
+
+Group consecutive code fences into tabs using the `tab` attribute. Each fence is processed independently (reference extraction, strip, transmute, diff — everything works), then consecutive `tab` fences are wrapped in a `tabGroup` AST node.
+
+**Multi-language tabs:**
+
+````md
+```python tab="Python" reference="tests/test_sdk.py#create_user"
+```
+
+```javascript tab="Node.js" reference="tests/test_sdk.js#create_user"
+```
+````
+
+**Same-language version comparison:**
+
+````md
+```python tab="SDK v1" reference="tests/v1.py#create_user"
+```
+
+```python tab="SDK v2" reference="tests/v2.py#create_user"
+```
+````
+
+**Inline code tabs (no reference needed):**
+
+````md
+```bash tab="npm"
+npm install myapp
+```
+
+```bash tab="yarn"
+yarn add myapp
+```
+````
+
+Bare `tab` (no value) derives the label from the language tag: `` ```python tab `` → label "Python".
+
+### Sync key
+
+Use `tab-group="id"` to synchronize tab selection across multiple tab groups on a page (like Docusaurus `groupId` or Starlight `syncKey`). Clicking "Python" in one group switches all groups with the same sync key.
+
+```md
+```python tab="Python" tab-group="lang" reference="tests/install.py#pip"
+```
+
+To split adjacent tab groups without visible content between them, use an HTML comment (`<!-- -->`), which creates an invisible node that breaks the consecutive grouping.
+
+### AST output
+
+The plugin emits `tabGroup` wrapper nodes with `data.hName = 'div'` and `data.hProperties.class = 'code-tabs'` (customizable via `tabGroupClass` option). Each child code node gets `data.tabLabel` and `data.hProperties['data-tab']`.
+
+Without a companion plugin, this renders as a `<div class="code-tabs">` wrapping stacked `<pre><code>` blocks. Framework-specific companion plugins (coming soon) will transform these into native Docusaurus `<Tabs>`, Starlight tabs, etc.
+
 ## Auto-dedent
 
 Extracted regions are automatically dedented. Common leading whitespace is removed so that code nested inside test functions or classes renders flush-left in your docs.
@@ -442,6 +496,7 @@ remarkPlugins: [[codeRegion, { clean: false }]],
 | `regionSeparator` | `string` | `'\n\n'` | String inserted between regions in multi-region concatenation. |
 | `preserveFileMeta` | `boolean` | `false` | Keep `file=` in meta after processing (matches remark-code-import behavior). |
 | `diffFormat` | `string` | `'unified'` | Output format for diff blocks: `'unified'`, `'inline-annotations'`, or `'side-by-side'`. |
+| `tabGroupClass` | `string` | `'code-tabs'` | CSS class for tab group wrapper `<div>`. |
 
 **Exports** (for composing custom configurations):
 
