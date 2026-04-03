@@ -66,9 +66,9 @@ export declare const PRESET_CLEAN: {
 
 // Preset region markers (grouped by syntax)
 export declare const PRESET_MARKERS: {
-  css: RegionMarker[];
-  html: RegionMarker[];
-  sql: RegionMarker[];
+  css: RegionMarker;
+  html: RegionMarker;
+  sql: RegionMarker;
 };
 
 // Default values (unions of all presets)

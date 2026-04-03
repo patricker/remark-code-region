@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_STRIP_PATTERNS,
-  PRESET_STRIP,
-  PRESET_TRANSMUTE,
-} from '../lib/patterns.mjs';
-import {
   cleanCode,
   dedent,
   splitArgs,
   stripAsserts,
   transmuteAsserts,
-} from '../lib/strip-asserts.mjs';
+} from '../lib/code-transforms.mjs';
+import {
+  DEFAULT_STRIP_PATTERNS,
+  PRESET_STRIP,
+  PRESET_TRANSMUTE,
+} from '../lib/patterns.mjs';
 
 describe('stripAsserts', () => {
   it('strips Python assert', () => {

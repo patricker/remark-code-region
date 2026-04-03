@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { SKIP, visit } from 'unist-util-visit';
+import { cleanCode } from './lib/code-transforms.mjs';
 import { formatDiff } from './lib/diff-regions.mjs';
 import { extractLines, LINE_RANGE_RE } from './lib/extract-lines.mjs';
 import { extractRegion } from './lib/extract-region.mjs';
@@ -23,7 +24,6 @@ import {
   DEFAULT_REGION_MARKERS,
   DEFAULT_STRIP_PATTERNS,
 } from './lib/patterns.mjs';
-import { cleanCode } from './lib/strip-asserts.mjs';
 import { groupTabsInParent, TAB_REGEX } from './lib/tab-groups.mjs';
 
 /** Regex to find reference="..." in code fence meta (not diff-reference). */
@@ -45,10 +45,24 @@ const DIFF_STEP_REGEX = /(?:^|\s)diff-step="([^"]+)"/;
 const ROOT_DIR_PREFIX = '<rootDir>/';
 
 /**
+ * Report an error via vfile.fail() or throw. Always throws (vfile.fail()
+ * throws per the vfile spec), so this function never returns.
+ * @param {object} vfile
+ * @param {string} msg
+ * @returns {never}
+ */
+function fail(vfile, msg) {
+  if (vfile?.fail) {
+    vfile.fail(msg);
+  }
+  throw new Error(msg);
+}
+
+/**
  * Parse ?flags from a raw reference value (e.g., "file.py#region?noStrip&format=unified").
  * @param {string} rawValue
  * @param {'unified'|'inline-annotations'|'side-by-side'} defaultFormat
- * @returns {{ flagOverrides: { noStrip: boolean, noTransmute: boolean }, effectiveDiffFormat: string }}
+ * @returns {{ flagOverrides: { noStrip: boolean, noTransmute: boolean }, effectiveDiffFormat: string, formatFlag: string|null }}
  */
 function parseFlags(rawValue, defaultFormat) {
   const hashIndex = rawValue.indexOf('#');
@@ -199,12 +213,10 @@ export default function remarkCodeRegion(options = {}) {
       !absPath.startsWith(securityBase + path.sep) &&
       absPath !== securityBase
     ) {
-      const msg = `remark-code-region: '${filePath || raw}' resolves outside the root directory '${securityBase}'`;
-      if (vfile?.fail) {
-        vfile.fail(msg);
-        return { code: '', absPath };
-      }
-      throw new Error(msg);
+      fail(
+        vfile,
+        `remark-code-region: '${filePath || raw}' resolves outside the root directory '${securityBase}'`,
+      );
     }
 
     // Read the source file
@@ -212,12 +224,10 @@ export default function remarkCodeRegion(options = {}) {
     try {
       content = fs.readFileSync(absPath, 'utf-8').replace(/\r\n/g, '\n');
     } catch (e) {
-      const msg = `remark-code-region: cannot read file '${filePath || raw}' (resolved to '${absPath}'): ${e.message}`;
-      if (vfile?.fail) {
-        vfile.fail(msg);
-        return { code: '', absPath };
-      }
-      throw new Error(msg);
+      fail(
+        vfile,
+        `remark-code-region: cannot read file '${filePath || raw}' (resolved to '${absPath}'): ${e.message}`,
+      );
     }
 
     // Extract: line ranges, named regions, or full file
@@ -239,11 +249,7 @@ export default function remarkCodeRegion(options = {}) {
         code = parts.join(regionSeparator);
       }
     } catch (e) {
-      if (vfile?.fail) {
-        vfile.fail(e.message);
-        return { code: '', absPath };
-      }
-      throw e;
+      fail(vfile, e.message);
     }
 
     // Clean: transmute + strip asserts + whitespace pipeline
@@ -276,14 +282,118 @@ export default function remarkCodeRegion(options = {}) {
     const baseDir = rootDir || file?.cwd || process.cwd();
     const resolvedBase = path.resolve(baseDir);
 
+    /** Handle diff-reference / diff-file mode. Returns visitor control value or undefined. */
+    function handleDiff(node, index, parent, ctx) {
+      const isDiffFile = !!ctx.diffFileMatch;
+      const diffRaw = isDiffFile ? ctx.diffFileMatch[1] : ctx.diffRefMatch[1];
+
+      const diffResolveDir = isDiffFile
+        ? file?.dirname || file?.cwd || process.cwd()
+        : baseDir;
+
+      const diffTarget = resolveRef(
+        diffRaw,
+        isDiffFile,
+        diffResolveDir,
+        resolvedBase,
+        file,
+        node.lang || '',
+        {
+          flagOverrides: ctx.flagOverrides,
+          fallbackAbsPath: ctx.primary.absPath,
+        },
+      );
+
+      const result = formatDiff(
+        ctx.primary.code,
+        diffTarget.code,
+        ctx.effectiveDiffFormat,
+      );
+
+      if (result.mode === 'side-by-side') {
+        if (node.meta && TAB_REGEX.test(node.meta)) {
+          fail(
+            file,
+            'remark-code-region: tab= cannot be combined with side-by-side diff format',
+          );
+        }
+        const baseMeta = cleanMeta(
+          node.meta,
+          ctx.isFileDirective,
+          preserveFileMeta,
+        );
+        const beforeNode = {
+          type: 'code',
+          lang: node.lang,
+          meta: baseMeta
+            ? `${baseMeta} data-diff-role="before"`
+            : 'data-diff-role="before"',
+          value: result.before,
+        };
+        const afterNode = {
+          type: 'code',
+          lang: node.lang,
+          meta: baseMeta
+            ? `${baseMeta} data-diff-role="after"`
+            : 'data-diff-role="after"',
+          value: result.after,
+        };
+        parent.children.splice(index, 1, beforeNode, afterNode);
+        return [SKIP, index + 2];
+      }
+
+      node.value = result.value;
+      if (result.mode === 'unified') {
+        node.lang = 'diff';
+      }
+    }
+
+    /** Handle diff-step mode (tutorial step diffs). */
+    function handleDiffStep(node, ctx) {
+      const previousStep = resolveRef(
+        `#${ctx.diffStepMatch[1]}`,
+        ctx.isFileDirective,
+        ctx.primaryResolveDir,
+        resolvedBase,
+        file,
+        node.lang || '',
+        {
+          flagOverrides: ctx.flagOverrides,
+          fallbackAbsPath: ctx.primary.absPath,
+        },
+      );
+
+      const stepFormat =
+        ctx.effectiveDiffFormat === 'unified' && !ctx.formatFlag
+          ? 'inline-annotations'
+          : ctx.effectiveDiffFormat;
+
+      const result = formatDiff(
+        previousStep.code,
+        ctx.primary.code,
+        stepFormat,
+      );
+
+      if (result.mode === 'side-by-side') {
+        fail(
+          file,
+          'remark-code-region: side-by-side format is not supported with diff-step',
+        );
+      }
+
+      if (result.mode === 'unified') {
+        node.value = result.value;
+        node.lang = 'diff';
+      } else {
+        node.value = result.value || ctx.primary.code;
+      }
+    }
+
     visit(tree, 'code', (node, index, parent) => {
       if (!node.meta) return;
 
-      // Try reference= first (takes precedence), then file=
       const refMatch = node.meta.match(REF_REGEX);
       const fileMatch = !refMatch ? node.meta.match(FILE_REGEX) : null;
-
-      // Check for diff-reference= / diff-file= / diff-step=
       const diffRefMatch = node.meta.match(DIFF_REF_REGEX);
       const diffFileMatch = !diffRefMatch
         ? node.meta.match(DIFF_FILE_REGEX)
@@ -292,28 +402,19 @@ export default function remarkCodeRegion(options = {}) {
       const hasDiff = !!(diffRefMatch || diffFileMatch);
       const hasDiffStep = !!diffStepMatch;
 
-      // Mutual exclusion: can't combine diff-reference/diff-file with diff-step
       if (hasDiff && hasDiffStep) {
-        const msg =
-          'remark-code-region: diff-reference/diff-file and diff-step cannot be used on the same code block';
-        if (file?.fail) {
-          file.fail(msg);
-          return;
-        }
-        throw new Error(msg);
+        fail(
+          file,
+          'remark-code-region: diff-reference/diff-file and diff-step cannot be used on the same code block',
+        );
       }
 
-      // If no primary reference and no diff attribute, skip
       if (!refMatch && !fileMatch) {
-        // Error if diff attr present without primary
         if (hasDiff || hasDiffStep) {
-          const msg =
-            'remark-code-region: diff-reference/diff-file/diff-step requires a primary reference= or file= on the same code block';
-          if (file?.fail) {
-            file.fail(msg);
-            return;
-          }
-          throw new Error(msg);
+          fail(
+            file,
+            'remark-code-region: diff-reference/diff-file/diff-step requires a primary reference= or file= on the same code block',
+          );
         }
         return;
       }
@@ -321,7 +422,6 @@ export default function remarkCodeRegion(options = {}) {
       const isFileDirective = !!fileMatch;
       const primaryRaw = isFileDirective ? fileMatch[1] : refMatch[1];
 
-      // Determine path resolution base for the primary reference
       let primaryResolveDir;
       if (!isFileDirective) {
         primaryResolveDir = baseDir;
@@ -331,13 +431,11 @@ export default function remarkCodeRegion(options = {}) {
         primaryResolveDir = file?.dirname || file?.cwd || process.cwd();
       }
 
-      // Parse per-block flag overrides and format from primary reference
       const { flagOverrides, effectiveDiffFormat, formatFlag } = parseFlags(
         primaryRaw,
         diffFormat,
       );
 
-      // Extract and clean the primary reference
       const primary = resolveRef(
         primaryRaw,
         isFileDirective,
@@ -348,126 +446,29 @@ export default function remarkCodeRegion(options = {}) {
         { flagOverrides },
       );
 
+      // Shared context for handler functions
+      const ctx = {
+        primary,
+        isFileDirective,
+        primaryResolveDir,
+        flagOverrides,
+        effectiveDiffFormat,
+        formatFlag,
+        diffRefMatch,
+        diffFileMatch,
+        diffStepMatch,
+      };
+
       if (hasDiff) {
-        // --- Diff mode ---
-        const isDiffFile = !!diffFileMatch;
-        const diffRaw = isDiffFile ? diffFileMatch[1] : diffRefMatch[1];
-
-        // Determine resolve dir for diff target
-        let diffResolveDir;
-        if (isDiffFile) {
-          // diff-file= resolves relative to markdown file
-          diffResolveDir = file?.dirname || file?.cwd || process.cwd();
-        } else {
-          // diff-reference= resolves relative to rootDir
-          diffResolveDir = baseDir;
-        }
-
-        // Extract and clean the diff target (same-file shorthand uses primary's absPath)
-        const diffTarget = resolveRef(
-          diffRaw,
-          isDiffFile,
-          diffResolveDir,
-          resolvedBase,
-          file,
-          node.lang || '',
-          { flagOverrides, fallbackAbsPath: primary.absPath },
-        );
-
-        // Format the diff
-        const result = formatDiff(
-          primary.code,
-          diffTarget.code,
-          effectiveDiffFormat,
-        );
-
-        if (result.mode === 'side-by-side') {
-          // tab= + side-by-side is not supported (splice creates ambiguous semantics)
-          if (node.meta && TAB_REGEX.test(node.meta)) {
-            const msg =
-              'remark-code-region: tab= cannot be combined with side-by-side diff format';
-            if (file?.fail) {
-              file.fail(msg);
-              return;
-            }
-            throw new Error(msg);
-          }
-          // Emit two sibling nodes
-          const baseMeta = cleanDiffMeta(
-            node.meta,
-            isFileDirective,
-            preserveFileMeta,
-          );
-          const beforeNode = {
-            type: 'code',
-            lang: node.lang,
-            meta: baseMeta
-              ? `${baseMeta} data-diff-role="before"`
-              : 'data-diff-role="before"',
-            value: result.before,
-          };
-          const afterNode = {
-            type: 'code',
-            lang: node.lang,
-            meta: baseMeta
-              ? `${baseMeta} data-diff-role="after"`
-              : 'data-diff-role="after"',
-            value: result.after,
-          };
-          parent.children.splice(index, 1, beforeNode, afterNode);
-          return [SKIP, index + 2];
-        }
-
-        // unified or inline-annotations: single node
-        node.value = result.value;
-        if (result.mode === 'unified') {
-          node.lang = 'diff';
-        }
+        const skipResult = handleDiff(node, index, parent, ctx);
+        if (skipResult) return skipResult;
       } else if (hasDiffStep) {
-        // --- Diff-step mode (tutorial steps) ---
-        // Extract the previous step from the same file
-        const previousStep = resolveRef(
-          `#${diffStepMatch[1]}`,
-          isFileDirective,
-          primaryResolveDir,
-          resolvedBase,
-          file,
-          node.lang || '',
-          { flagOverrides, fallbackAbsPath: primary.absPath },
-        );
-
-        // Default to inline-annotations for diff-step (shows full code with highlights)
-        const stepFormat =
-          effectiveDiffFormat === 'unified' && !formatFlag
-            ? 'inline-annotations'
-            : effectiveDiffFormat;
-
-        const result = formatDiff(previousStep.code, primary.code, stepFormat);
-
-        if (result.mode === 'side-by-side') {
-          const msg =
-            'remark-code-region: side-by-side format is not supported with diff-step';
-          if (file?.fail) {
-            file.fail(msg);
-            return;
-          }
-          throw new Error(msg);
-        }
-
-        if (result.mode === 'unified') {
-          node.value = result.value;
-          node.lang = 'diff';
-        } else {
-          // inline-annotations: full current code with change markers
-          node.value = result.value || primary.code;
-        }
+        handleDiffStep(node, ctx);
       } else {
-        // --- Normal mode (no diff) ---
         node.value = primary.code;
       }
 
-      // Clean meta: remove directive attributes
-      node.meta = cleanDiffMeta(node.meta, isFileDirective, preserveFileMeta);
+      node.meta = cleanMeta(node.meta, isFileDirective, preserveFileMeta);
     });
 
     // Pass 2: group consecutive tab= fences into tabGroup wrapper nodes
@@ -478,7 +479,7 @@ export default function remarkCodeRegion(options = {}) {
 /**
  * Strip reference=, file=, diff-reference=, diff-file=, diff-step=, and diff keyword from meta.
  */
-function cleanDiffMeta(meta, isFileDirective, preserveFileMeta) {
+function cleanMeta(meta, isFileDirective, preserveFileMeta) {
   let m = meta;
   // Strip diff directives FIRST (before primary, since "file=" matches inside "diff-file=")
   m = m.replace(/\s*diff-reference="[^"]*"/, '');

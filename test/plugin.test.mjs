@@ -1483,7 +1483,7 @@ describe('remarkCodeRegion — CJS entry point', () => {
   });
 });
 
-describe('remarkCodeRegion — cleanDiffMeta', () => {
+describe('remarkCodeRegion — meta cleanup', () => {
   it('strips reference= from meta', () => {
     const input =
       '```python reference="snippets/example.py#hello" title="demo"\n```';
