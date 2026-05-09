@@ -430,7 +430,60 @@ To split adjacent tab groups without visible content between them, use an HTML c
 
 The plugin emits `tabGroup` wrapper nodes with `data.hName = 'div'` and `data.hProperties.class = 'code-tabs'` (customizable via `tabGroupClass` option). Each child code node gets `data.tabLabel` and `data.hProperties['data-tab']`.
 
-Without a companion plugin, this renders as a `<div class="code-tabs">` wrapping stacked `<pre><code>` blocks. Framework-specific companion plugins (coming soon) will transform these into native Docusaurus `<Tabs>`, Starlight tabs, etc.
+Without a companion plugin, this renders as a `<div class="code-tabs">` wrapping stacked `<pre><code>` blocks. Add a companion plugin to transform these into native framework tabs:
+
+**Docusaurus:**
+```js
+const codeRegion = require('remark-code-region');
+const codeRegionTabs = require('remark-code-region/docusaurus');
+
+remarkPlugins: [codeRegion, codeRegionTabs],
+```
+
+**Astro Starlight:**
+```js
+import codeRegion from 'remark-code-region';
+import codeRegionTabs from 'remark-code-region/starlight';
+
+remarkPlugins: [codeRegion, codeRegionTabs],
+```
+
+For other remark pipelines, the `tabGroup` AST nodes are well-structured for custom rehype plugins to consume directly.
+
+## Shiki annotations
+
+Add `?highlight=` or `?focus=` to any reference to inject [Shiki transformer annotations](https://shiki.style/packages/transformers) into the extracted code:
+
+````md
+```python reference="tests/test_sdk.py#create_user?highlight=1,3-5"
+```
+
+```python reference="tests/test_sdk.py#create_user?focus=2,4-6"
+```
+````
+
+Line numbers are 1-based and refer to the final output (after strip/transmute/dedent). Ranges (`3-5`) and mixed specs (`1,3-5,8`) are supported.
+
+Add the Shiki companion plugin to inject the annotations:
+
+```js
+import codeRegion from 'remark-code-region';
+import codeRegionShiki from 'remark-code-region/shiki';
+
+remarkPlugins: [codeRegion, codeRegionShiki],
+```
+
+Requires `@shikijs/transformers` (`transformerNotationHighlight`, `transformerNotationFocus`) configured in your Shiki setup.
+
+### Soft diff-step highlighting
+
+By default, `diff-step` emits `// [!code ++]` / `// [!code --]` for green/red diff highlighting. The Shiki companion can convert these to softer `// [!code highlight]` annotations — emphasizing new lines without the diff color scheme:
+
+```js
+remarkPlugins: [codeRegion, [codeRegionShiki, { diffStepStyle: 'highlight' }]],
+```
+
+Lines marked `// [!code --]` are removed (since diff-step shows the current code state), and `// [!code ++]` becomes `// [!code highlight]`.
 
 ## Auto-dedent
 
@@ -553,15 +606,27 @@ Works inside MDX components (`<Tabs>`, admonitions) -- the plugin runs at the re
 
 ```js
 const codeRegion = require('remark-code-region');
+const codeRegionTabs = require('remark-code-region/docusaurus'); // optional, for tab groups
 
 module.exports = {
   presets: [['classic', {
-    docs: { remarkPlugins: [codeRegion] },
+    docs: { remarkPlugins: [codeRegion, codeRegionTabs] },
   }]],
 };
 ```
 
-### Astro
+### Astro Starlight
+
+```js
+import codeRegion from 'remark-code-region';
+import codeRegionTabs from 'remark-code-region/starlight'; // optional, for tab groups
+
+export default defineConfig({
+  markdown: { remarkPlugins: [codeRegion, codeRegionTabs] },
+});
+```
+
+### Astro (non-Starlight)
 
 ```js
 import codeRegion from 'remark-code-region';

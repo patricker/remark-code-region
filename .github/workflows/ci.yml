@@ -29,8 +29,12 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify CJS bundle
-        run: node -e "const p = require('./index.cjs'); if (typeof p !== 'function') { console.error('CJS export is not a function:', typeof p); process.exit(1); }"
+      - name: Verify CJS bundles
+        run: |
+          node -e "const p = require('./index.cjs'); if (typeof p !== 'function') { console.error('CJS export is not a function:', typeof p); process.exit(1); }"
+          node -e "const p = require('./lib/docusaurus.cjs'); if (typeof p !== 'function') { console.error('CJS export is not a function:', typeof p); process.exit(1); }"
+          node -e "const p = require('./lib/starlight.cjs'); if (typeof p !== 'function') { console.error('CJS export is not a function:', typeof p); process.exit(1); }"
+          node -e "const p = require('./lib/shiki.cjs'); if (typeof p !== 'function') { console.error('CJS export is not a function:', typeof p); process.exit(1); }"
 
       - name: Test
         run: npm test

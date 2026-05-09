@@ -62,7 +62,7 @@ function fail(vfile, msg) {
  * Parse ?flags from a raw reference value (e.g., "file.py#region?noStrip&format=unified").
  * @param {string} rawValue
  * @param {'unified'|'inline-annotations'|'side-by-side'} defaultFormat
- * @returns {{ flagOverrides: { noStrip: boolean, noTransmute: boolean }, effectiveDiffFormat: string, formatFlag: string|null }}
+ * @returns {{ flagOverrides: { noStrip: boolean, noTransmute: boolean }, effectiveDiffFormat: string, formatFlag: string|null, highlight: string|null, focus: string|null }}
  */
 function parseFlags(rawValue, defaultFormat) {
   const hashIndex = rawValue.indexOf('#');
@@ -70,6 +70,8 @@ function parseFlags(rawValue, defaultFormat) {
   const qIndex = fragStr ? fragStr.indexOf('?') : -1;
   const flags = qIndex >= 0 ? fragStr.slice(qIndex + 1).split('&') : [];
   const formatFlag = flags.find((f) => f.startsWith('format='));
+  const highlightFlag = flags.find((f) => f.startsWith('highlight='));
+  const focusFlag = flags.find((f) => f.startsWith('focus='));
   return {
     flagOverrides: {
       noStrip: flags.includes('noStrip'),
@@ -79,6 +81,8 @@ function parseFlags(rawValue, defaultFormat) {
       ? formatFlag.slice('format='.length)
       : defaultFormat,
     formatFlag: formatFlag || null,
+    highlight: highlightFlag ? highlightFlag.slice('highlight='.length) : null,
+    focus: focusFlag ? focusFlag.slice('focus='.length) : null,
   };
 }
 
@@ -431,10 +435,13 @@ export default function remarkCodeRegion(options = {}) {
         primaryResolveDir = file?.dirname || file?.cwd || process.cwd();
       }
 
-      const { flagOverrides, effectiveDiffFormat, formatFlag } = parseFlags(
-        primaryRaw,
-        diffFormat,
-      );
+      const {
+        flagOverrides,
+        effectiveDiffFormat,
+        formatFlag,
+        highlight,
+        focus,
+      } = parseFlags(primaryRaw, diffFormat);
 
       const primary = resolveRef(
         primaryRaw,
@@ -469,6 +476,12 @@ export default function remarkCodeRegion(options = {}) {
       }
 
       node.meta = cleanMeta(node.meta, isFileDirective, preserveFileMeta);
+
+      if (highlight || focus) {
+        node.data = node.data || {};
+        if (highlight) node.data.highlight = highlight;
+        if (focus) node.data.focus = focus;
+      }
     });
 
     // Pass 2: group consecutive tab= fences into tabGroup wrapper nodes

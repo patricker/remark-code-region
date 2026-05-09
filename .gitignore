@@ -1,2 +1,4 @@
 node_modules/
 index.cjs
+lib/*.cjs
+ref/

@@ -1552,3 +1552,47 @@ describe('remarkCodeRegion — meta cleanup', () => {
     expect(code.meta).toBe('title="demo" data-foo="bar"');
   });
 });
+
+describe('remarkCodeRegion — Shiki data storage', () => {
+  it('stores node.data.highlight from ?highlight= flag', () => {
+    const input =
+      '```python reference="snippets/example.py#hello?highlight=1,3-5"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.data.highlight).toBe('1,3-5');
+  });
+
+  it('stores node.data.focus from ?focus= flag', () => {
+    const input =
+      '```python reference="snippets/example.py#hello?focus=2,4-6"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.data.focus).toBe('2,4-6');
+  });
+
+  it('stores both highlight and focus', () => {
+    const input =
+      '```python reference="snippets/example.py#hello?highlight=1&focus=3"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.data.highlight).toBe('1');
+    expect(code.data.focus).toBe('3');
+  });
+
+  it('coexists with noStrip flag', () => {
+    const input =
+      '```python reference="snippets/example.py#with_asserts?noStrip&highlight=1"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.data.highlight).toBe('1');
+    expect(code.value).toContain('assert');
+  });
+
+  it('does not set data when no flags present', () => {
+    const input = '```python reference="snippets/example.py#hello"\n```';
+    const tree = processToTree(input);
+    const code = tree.children.find((n) => n.type === 'code');
+    expect(code.data?.highlight).toBeUndefined();
+    expect(code.data?.focus).toBeUndefined();
+  });
+});

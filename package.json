@@ -1,6 +1,6 @@
 {
   "name": "remark-code-region",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Every code block in your docs is extracted from a passing test. Pull tested code from your test suite into Docusaurus, Astro, or any remark-powered docs.",
   "type": "module",
   "main": "./index.cjs",
@@ -10,6 +10,21 @@
       "types": "./index.d.mts",
       "require": "./index.cjs",
       "import": "./index.mjs"
+    },
+    "./docusaurus": {
+      "types": "./lib/docusaurus.d.mts",
+      "require": "./lib/docusaurus.cjs",
+      "import": "./lib/docusaurus.mjs"
+    },
+    "./starlight": {
+      "types": "./lib/starlight.d.mts",
+      "require": "./lib/starlight.cjs",
+      "import": "./lib/starlight.mjs"
+    },
+    "./shiki": {
+      "types": "./lib/shiki.d.mts",
+      "require": "./lib/shiki.cjs",
+      "import": "./lib/shiki.mjs"
     }
   },
   "files": [
@@ -19,13 +34,13 @@
     "lib/"
   ],
   "scripts": {
-    "build": "esbuild index.mjs --bundle --platform=node --format=cjs --outfile=index.cjs --packages=external --footer:js=\";(function(){var m=module.exports;var fn=m.default;Object.assign(fn,m);delete fn.default;fn.default=fn;module.exports=fn;})()\"",
+    "build": "node scripts/build.mjs",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "prepublishOnly": "npm run build && npm test",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --exclude 'ref/**'",
+    "test:watch": "vitest --exclude 'ref/**'"
   },
   "keywords": [
     "remark",
@@ -60,9 +75,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.10",
+    "@shikijs/rehype": "^4.0.2",
+    "@shikijs/transformers": "^4.0.2",
     "esbuild": "^0.27.4",
+    "rehype-stringify": "^10.0.1",
     "remark": "^15.0.0",
     "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
     "vitest": "^3.0.0"
   },
   "engines": {
